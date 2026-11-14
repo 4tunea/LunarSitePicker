@@ -124,9 +124,9 @@ from `app.js`.
     { "file": "LDEM_75S_120M.IMG",             "role": "far-field",  "resolution_m": 120, "extent_km": 914.9 }
   ],
   "horizons": [                       // [app] same mast list, same order, for every site
-    { "mast_height_m": 2,  "max_range_km": 250, "elev_deg": [720 numbers] },   // mast_height_m, elev_deg [app]
-    { "mast_height_m": 10, "max_range_km": 250, "elev_deg": [720 numbers] }    // max_range_km [info]
-  ],
+    { "mast_height_m": 2,  "max_range_km": 250, "complete": true, "elev_deg": [720 numbers] },   // mast_height_m, elev_deg [app]
+    { "mast_height_m": 10, "max_range_km": 250, "complete": true, "elev_deg": [720 numbers] }    // max_range_km, complete [info]
+  ],                                  // complete = false if some ray left the DEM before max_range_km (lower bound there)
   "sun":   { "alt_deg": [count numbers], "az_deg": [count numbers] },   // [app]
   "earth": { "alt_deg": [count numbers], "az_deg": [count numbers] }    // [app]
 }
@@ -164,10 +164,10 @@ Rules the frontend relies on (checked in `app.js`, 2026-11-14):
 
 The frontend reads these from `bodies.*.diam_deg[k]`. **It must not hard-code them.**
 
-| Body | Typical | Range over Nov 2026 – Feb 2028 (expected) | Stored as |
+| Body | Typical | Range over Nov 2026 – Feb 2028 (measured, first real run) | Stored as |
 |---|---|---|---|
-| Sun | 0.533° | ≈ 0.524–0.542° (Earth–Sun distance varies) | hourly series, 3 decimals |
-| Earth | 1.90° | ≈ 1.80–2.05° (Earth–Moon distance 356–407 thousand km) | hourly series, 3 decimals |
+| Sun | 0.533° | 0.523–0.543° (Earth–Sun distance varies) | hourly series, 3 decimals |
+| Earth | 1.90° | 1.795–2.048° (Earth–Moon distance 356–407 thousand km) | hourly series, 3 decimals |
 
 - Diameters are stored as series, not constants. Earth's diameter varies by about ±7%,
   which matters at the edge of the disc.
@@ -181,9 +181,14 @@ The frontend reads these from `bodies.*.diam_deg[k]`. **It must not hard-code th
 - **Plain JSON number arrays.** No base64 or binary, so it can be debugged by eye.
 - Alt/az and horizon values are rounded to **2 decimals** (0.01°; max quantisation error
   0.005°, well below horizon/DEM uncertainty). Diameters are rounded to **3 decimals**.
-- Measured on the fake fixture (8760 h, 720 bins × 2 masts, 5 sites): 1.19 MB total.
-  Scaled to 11664 h: ≈ 1.6 MB total, ≈ 0.3 MB per site, ≈ 0.45 MB gzipped (as GitHub Pages /
-  Vercel serve it). To be replaced by the measured size after the first real run.
+- Measured on the first real file (2026-11-14, 11664 h, 720 bins × 2 masts, 5 sites):
+
+  | | Size |
+  |---|---|
+  | One site (Connecting Ridge alone) | 0.43 MB |
+  | Total, `navigator-data.json` | 1.57 MB |
+  | Total, `navigator-data.js` | 1.57 MB |
+  | Gzipped (as GitHub Pages / Vercel serve it) | 0.35 MB |
 - This is under the ~3 MB budget, so no reduction is needed. If we add sites or a second
   year, these are the options, in order:
   1. Drop to 1 decimal for azimuth beyond ±30 days of the demo dates (≈ −10%).
@@ -266,8 +271,8 @@ fake fixture is `web/data/navigator-data.fake.js` (`"fake": true`, written by
         { "file": "FAKE_far.IMG", "role": "far-field", "resolution_m": 120, "extent_km": 914.9 }
       ],
       "horizons": [
-        { "mast_height_m": 2,  "max_range_km": 250, "elev_deg": [0.41, -0.62, 1.37, 0.05] },
-        { "mast_height_m": 10, "max_range_km": 250, "elev_deg": [0.38, -0.71, 1.33, 0.01] }
+        { "mast_height_m": 2,  "max_range_km": 250, "complete": true, "elev_deg": [0.41, -0.62, 1.37, 0.05] },
+        { "mast_height_m": 10, "max_range_km": 250, "complete": true, "elev_deg": [0.38, -0.71, 1.33, 0.01] }
       ],
       "sun":   { "alt_deg": [1.12, 1.09, 1.05, 1.02], "az_deg": [358.9, 359.41, 359.92, 0.43] },
       "earth": { "alt_deg": [4.83, 4.85, 4.88, 4.90], "az_deg": [42.17, 42.21, 42.25, 42.30] }
@@ -303,16 +308,21 @@ fake fixture is `web/data/navigator-data.fake.js` (`"fake": true`, written by
 
 ## 10. Site list (fixed order)
 
-| # | id | name | PGDA LOLA_5mpp label | Coordinates |
-|---|---|---|---|---|
-| 0 | `connecting-ridge` | Connecting Ridge | Site01 | candidate: −89.4632, −137.4896, ≈1945 m (centre of the Site01 tile); to be recorded with its `coord_source` |
-| 1 | `shackleton-rim` | Shackleton Rim | Site04 | TBD |
-| 2 | `malapert-massif` | Malapert Massif | Site23 | TBD |
-| 3 | `haworth` | Haworth | Haworth | TBD |
-| 4 | `nobile-rim-2` | Nobile Rim 2 | DM2 | TBD |
+| # | id | name | PGDA LOLA_5mpp label | Coordinates (centre of the PGDA tile, from its GeoTIFF extent) | Ground (LDEM 120 m) |
+|---|---|---|---|---|---|
+| 0 | `connecting-ridge` | Connecting Ridge | Site01 (16 × 16 km) | −89.4632, −137.4896 | 1942.7 m |
+| 1 | `shackleton-rim` | Shackleton Rim | Site04 (16 × 16 km) | −89.7668, −171.8699 | 769.8 m |
+| 2 | `malapert-massif` | Malapert Massif | Site23 (21 × 21 km) | −85.9948, −0.2358 | 4786.3 m |
+| 3 | `haworth` | Haworth | Haworth (29.8 × 29.8 km) | −86.7639, −22.7770 | 1627.6 m |
+| 4 | `nobile-rim-2` | Nobile Rim 2 | DM2 (20 × 20 km) | −83.9540, 58.8221 | 1009.1 m |
 
-Coordinates come from the PGDA tile metadata or a cited paper, never invented; the fake
-fixture's coordinates are placeholders and must not be copied.
+These are **candidate points**, recorded as such in `coord_source` (kind `dem-metadata`, ref =
+the PGDA tile extent). A tile centre is not a published landing coordinate and need not be the
+illuminated high ground: the Site04 and Haworth centres in particular sit low and see Earth
+rarely or never, so they are to be reviewed against the 5 m tiles or Mazarico et al. (2011).
+Coordinates are never invented; the fake fixture's coordinates are placeholders and must not be
+copied. Source of the tile extents: `precompute/sites.json` and the PGDA directory
+https://pgda.gsfc.nasa.gov/data/LOLA_5mpp/ (README lists the site names).
 
 The old `sites.js` id `shackleton` (named "Shackleton connecting ridge") maps to
 **`connecting-ridge`**. `shackleton-rim` is a different site. `sites.js` is a legacy frontend
