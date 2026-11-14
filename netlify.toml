@@ -1,0 +1,10 @@
+# Lunar Site Navigator on Netlify: a static site with no build step.
+#
+# The page (index.html) and everything it loads at run time live in the repository root, so the
+# root is the publish directory. There is no build command: Netlify uploads the files exactly as
+# they are in git (about 42 MB, 1,819 files). The ignored /data/ folder (LOLA and kernel
+# downloads for the Python pipeline) is not in git and is not needed by the page.
+# No headers or redirects are needed: every path is relative, all data ships as .js files, and
+# the only external request (NASA Moon Trek tiles) is HTTPS with CORS enabled.
+[build]
+  publish = "."
