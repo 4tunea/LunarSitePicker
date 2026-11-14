@@ -1,17 +1,15 @@
 """Download the raw inputs for precompute/ into data/ (gitignored). Downloads only.
 
-    python scripts/download_data.py              # kernels + LDEM_75S_120M (.IMG and .LBL)
+    python scripts/download_data.py              # kernels + LDEM_75S_120M (.IMG and .LBL) + 5 m tiles
     python scripts/download_data.py --only kernels
     python scripts/download_data.py --only dem
+    python scripts/download_data.py --only tiles  # the five PGDA LOLA_5mpp *_surf.tif (359 MB)
     python scripts/download_data.py --check      # HEAD requests only: show sizes, download nothing
 
 Rules: skip a file whose size already matches the server; stream to <name>.part and rename
 when the size matches; fail loudly otherwise. Standard library only, so it runs without the
 .venv. The DEM geometry is read from the PDS label (precompute/pds_label.py) and cross-checked
 against the values we know; the label is the truth, the known values are only a guard.
-
-Not downloaded yet: the 5 m/px PGDA tiles (see TILES_5MPP below). Their file names must be
-taken from the README at https://pgda.gsfc.nasa.gov/data/LOLA_5mpp/ before they are added.
 """
 from __future__ import annotations
 
@@ -45,8 +43,10 @@ FILES = {
     "LDEM_75S_120M.IMG":            ("dem", [LOLA_MIT + "LDEM_75S_120M.IMG", LOLA_PDS + "ldem_75s_120m.img"], 116_250_752),
 }
 
-# PGDA LOLA_5mpp near-field tiles, one per analysed site. NOT downloaded yet (step 3 of the plan):
-# the exact file names and sizes must be read from the README on the PGDA page first.
+# PGDA LOLA_5mpp near-field tiles, one per analysed site: <label>/<label>_final_adj_5mpp_surf.tif
+# (surface height in metres above the 1737.4 km sphere, 5 m/px, south polar stereographic, MOON_ME
+# of DE421; names from the PGDA README and directory listing, sizes from HEAD on 2026-11-14).
+PGDA_5MPP = "https://pgda.gsfc.nasa.gov/data/LOLA_5mpp/"
 TILES_5MPP = {
     "connecting-ridge": "Site01",
     "shackleton-rim":   "Site04",
@@ -54,7 +54,9 @@ TILES_5MPP = {
     "haworth":          "Haworth",
     "nobile-rim-2":     "DM2",
 }
-PGDA_5MPP = "https://pgda.gsfc.nasa.gov/data/LOLA_5mpp/"
+TILE_SIZES = {"Site01": 40_980_810, "Site04": 40_980_806, "Site23": 70_586_804, "Haworth": 142_123_767, "DM2": 64_025_607}
+for _label, _size in TILE_SIZES.items():
+    FILES["%s_final_adj_5mpp_surf.tif" % _label] = ("tiles", ["%s%s/%s_final_adj_5mpp_surf.tif" % (PGDA_5MPP, _label, _label)], _size)
 
 # What we know about LDEM_75S_120M from an earlier reading of its label. Used only as a guard:
 # if the parsed label disagrees, the script stops and says so.
@@ -169,7 +171,7 @@ def check_dem_label(data_dir):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    p.add_argument("--only", choices=["kernels", "dem"], help="download one group only")
+    p.add_argument("--only", choices=["kernels", "dem", "tiles"], help="download one group only")
     p.add_argument("--check", action="store_true", help="HEAD requests only, download nothing")
     p.add_argument("--data-dir", default=DATA_DIR)
     a = p.parse_args()
@@ -182,8 +184,6 @@ def main():
         ok = ensure(name, urls, expected, a.data_dir, a.check) and ok
     if not a.check and a.only in (None, "dem"):
         ok = check_dem_label(a.data_dir) and ok
-    print("5 m/px PGDA tiles are not downloaded yet; needed per site:",
-          ", ".join("%s=%s" % kv for kv in TILES_5MPP.items()), "from", PGDA_5MPP)
     print("all files OK" if ok else "PROBLEMS, see above")
     sys.exit(0 if ok else 1)
 

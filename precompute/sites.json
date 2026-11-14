@@ -1,0 +1,114 @@
+[
+  {
+    "id": "connecting-ridge",
+    "name": "Connecting Ridge",
+    "pgda_site": "Site01",
+    "pick": "summit",
+    "lat_deg": -89.43891,
+    "lon_deg": -137.14357,
+    "coord_source": {
+      "kind": "dem-metadata",
+      "ref": "highest point of PGDA 5 m tile Site01, chosen by team",
+      "note": "Site01_final_adj_5mpp_surf.tif pixel line 1694, sample 1485, height 1959.5 m (LDEM 120 m there: 1956.0 m), 7425 m from the nearest tile edge. Not a published landing coordinate; the tile is 16.0 x 16.0 km."
+    },
+    "near_field": {
+      "file": "Site01_final_adj_5mpp_surf.tif",
+      "extent_km": 16.0
+    }
+  },
+  {
+    "id": "shackleton-rim",
+    "name": "Shackleton Rim",
+    "pgda_site": "Site04",
+    "pick": {
+      "kind": "rim-crest",
+      "crater_centre": [
+        -89.66,
+        129.2
+      ],
+      "radius_km": [
+        9.5,
+        12.5
+      ]
+    },
+    "lat_deg": -89.7804,
+    "lon_deg": -156.19695,
+    "coord_source": {
+      "kind": "dem-metadata",
+      "ref": "highest point on the rim crest within PGDA tile Site04, chosen by team",
+      "note": "Site04_final_adj_5mpp_surf.tif pixel line 1418, sample 1262, height 1739.1 m (LDEM 120 m there: 1733.1 m), 6310 m from the nearest tile edge; 10.7 km from the crater centre (-89.66, 129.2), annulus (9.5, 12.5) km. Not a published landing coordinate; the tile is 16.0 x 16.0 km."
+    },
+    "near_field": {
+      "file": "Site04_final_adj_5mpp_surf.tif",
+      "extent_km": 16.0
+    }
+  },
+  {
+    "id": "malapert-massif",
+    "name": "Malapert Massif",
+    "pgda_site": "Site23",
+    "pick": "summit",
+    "lat_deg": -85.98768,
+    "lon_deg": 2.06813,
+    "coord_source": {
+      "kind": "dem-metadata",
+      "ref": "highest point of PGDA 5 m tile Site23, chosen by team",
+      "note": "Site23_final_adj_5mpp_surf.tif pixel line 2072, sample 3078, height 5173.6 m (LDEM 120 m there: 5171.5 m), 5605 m from the nearest tile edge. Not a published landing coordinate; the tile is 21.0 x 21.0 km."
+    },
+    "near_field": {
+      "file": "Site23_final_adj_5mpp_surf.tif",
+      "extent_km": 21.0
+    }
+  },
+  {
+    "id": "haworth",
+    "name": "Haworth",
+    "pgda_site": "Haworth",
+    "pick": "summit",
+    "lat_deg": -86.36454,
+    "lon_deg": -23.20848,
+    "coord_source": {
+      "kind": "dem-metadata",
+      "ref": "highest point of PGDA 5 m tile Haworth, chosen by team",
+      "note": "Haworth_final_adj_5mpp_surf.tif pixel line 809, sample 1888, height 2842.2 m (LDEM 120 m there: 2839.4 m), 4045 m from the nearest tile edge. Not a published landing coordinate; the tile is 29.8 x 29.8 km."
+    },
+    "near_field": {
+      "file": "Haworth_final_adj_5mpp_surf.tif",
+      "extent_km": 29.8
+    }
+  },
+  {
+    "id": "nobile-rim-2",
+    "name": "Nobile Rim 2",
+    "pgda_site": "DM2",
+    "pick": "summit",
+    "lat_deg": -84.07911,
+    "lon_deg": 54.88894,
+    "coord_source": {
+      "kind": "dem-metadata",
+      "ref": "highest point of PGDA 5 m tile DM2, chosen by team",
+      "note": "DM2_final_adj_5mpp_surf.tif pixel line 328, sample 0, height 1817.6 m (LDEM 120 m there: 1814.8 m), 0 m from the nearest tile edge; summit at the tile edge. Not a published landing coordinate; the tile is 20.0 x 20.0 km."
+    },
+    "near_field": {
+      "file": "DM2_final_adj_5mpp_surf.tif",
+      "extent_km": 20.0
+    }
+  },
+  {
+    "id": "connecting-ridge-lower",
+    "name": "Connecting Ridge (lower slope)",
+    "pgda_site": "Site01",
+    "pick": "fixed",
+    "lat_deg": -89.4632,
+    "lon_deg": -137.4896,
+    "coord_source": {
+      "kind": "dem-metadata",
+      "ref": "centre of PGDA 5 m tile Site01 (x -11000 m, y -12000 m), chosen by team as a lower-slope comparison point",
+      "note": "0.7 km from the Connecting Ridge summit and about 15 m lower, on the slope: the site where nearby terrain hides the Sun. Not a published landing coordinate; the tile is 16.0 x 16.0 km."
+    },
+    "near_field": {
+      "file": "Site01_final_adj_5mpp_surf.tif",
+      "extent_km": 16.0
+    }
+  }
+]

@@ -61,8 +61,11 @@ Keep the scope small: 5 south-pole sites, done properly.
    Horizons (observer on body 301, Sun and Earth, 3+ timestamps), report differences
    as static CSV + markdown in validation/.
 
-## Sites (analysed set: exactly these 5)
+## Sites (analysed set: exactly these 5, plus one comparison point)
 Site01 Connecting Ridge, Site04 Shackleton Rim, Malapert Massif, Haworth, Nobile Rim 2.
+Decision 2026-11-14: coordinates = highest point of the PGDA 5 m tile (Shackleton Rim: highest
+point on the rim crest); a sixth site "Connecting Ridge (lower slope)" at the Site01 tile centre
+shows what a 0.7 km move does. Rules and sources: precompute/sites.json, docs/data-contract.md §10.
 - Coordinates from the PGDA LOLA_5mpp DEM metadata or Mazarico et al.; record the
   source per site in the JSON (`coord_source`). Never invent coordinates.
 - The old `sites.js` id 'shackleton' is really Connecting Ridge; new ids must not repeat this.
