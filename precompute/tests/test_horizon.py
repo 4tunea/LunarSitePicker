@@ -83,6 +83,29 @@ def test_east_wall_appears_at_azimuth_90():
     report("east wall: last visible azimuth", float(seen.max()), 90.0 + half, 1.5)
 
 
+def test_near_field_step_in_5m_layer_over_120m_grid():
+    """Two layers: a 5 m tile (12 km, like PGDA) with a 20 m plateau starting 500 m east of the site, over a
+    flat 120 m grid that has a 1500 m wall 30 km to the west (outside the tile). The step must appear at
+    azimuth 90 with the analytic angle for both masts, the far wall must still be seen at 270 through the
+    120 m layer, and without the 5 m layer the step must not exist."""
+    sx, sy = site_xy(*SITE)
+    lo = math.radians(SITE[1])
+    ex, ey = math.cos(lo), -math.sin(lo)                        # local east in map coordinates
+    far = PolarDem.synthetic(3600, 120.0, lambda x, y: np.where(-((x - sx) * ex + (y - sy) * ey) > 30_000, 1500.0, 0.0))
+    tile = PolarDem.synthetic_window(sx - 6_000, sy + 6_000, 2400, 5.0,
+                                     lambda x, y: np.where((x - sx) * ex + (y - sy) * ey > 500, 20.0, 0.0))
+    report("5 m tile covers the site (height 0 there)", tile.height(*SITE), 0.0, 1e-6)
+    h = horizon([tile, far], *SITE, masts=(2.0, 10.0), max_range_m=150_000)
+    assert h["complete"]
+    for m in (2.0, 10.0):
+        e = h["elev_deg"][m]
+        report("near step 20 m at 500 m, %g m mast, azimuth 90" % m, e[180], wall_angle(500, 20, m), 0.04)
+        report("far wall through the 120 m layer, %g m mast, azimuth 270" % m, e[540], wall_angle(30_000, 1500, m), 0.05)
+        report("nothing north, %g m mast" % m, e[0], sphere_dip_deg(m), 0.003)
+    e_only_far = horizon([far], *SITE, masts=(2.0,), max_range_m=150_000)["elev_deg"][2.0]
+    report("without the 5 m layer the step is absent (azimuth 90)", e_only_far[180], sphere_dip_deg(2.0), 0.003)
+
+
 @pytest.mark.skipif(not os.path.exists(IMG), reason="LDEM_75S_120M.IMG not downloaded")
 def test_shackleton_floor_depth():
     dem = PolarDem.from_pds(IMG, LBL)

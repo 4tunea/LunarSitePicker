@@ -3,65 +3,80 @@
     "id": "connecting-ridge",
     "name": "Connecting Ridge",
     "pgda_site": "Site01",
-    "lat_deg": -89.4632,
-    "lon_deg": -137.4896,
+    "lat_deg": -89.43891,
+    "lon_deg": -137.14357,
     "coord_source": {
       "kind": "dem-metadata",
-      "ref": "PGDA LOLA_5mpp Site01 GeoTIFF extent, centre of the tile (x -11000 m, y -12000 m, south polar stereographic)",
-      "note": "Candidate point: the centre of the 16 x 16 km PGDA Site01 tile, not a published landing coordinate. Ground height from LDEM_75S_120M (120 m); the 5 m tile is not used yet."
+      "ref": "highest point of PGDA 5 m tile Site01, chosen by team",
+      "note": "Site01_final_adj_5mpp_surf.tif pixel line 1694, sample 1485, height 1959.5 m (LDEM 120 m there: 1956.0 m), 7425 m from the nearest tile edge. Not a published landing coordinate; the tile is 16.0 x 16.0 km."
     },
-    "near_field": { "file": "Site01_final_adj_5mpp_surf.tif", "extent_km": 16.0 }
+    "near_field": {
+      "file": "Site01_final_adj_5mpp_surf.tif",
+      "extent_km": 16.0
+    }
   },
   {
     "id": "shackleton-rim",
     "name": "Shackleton Rim",
     "pgda_site": "Site04",
-    "lat_deg": -89.7668,
-    "lon_deg": -171.8699,
+    "lat_deg": -89.52911,
+    "lon_deg": -140.94069,
     "coord_source": {
       "kind": "dem-metadata",
-      "ref": "PGDA LOLA_5mpp Site04 GeoTIFF extent, centre of the tile (x -1000 m, y -7000 m, south polar stereographic)",
-      "note": "Candidate point: the centre of the 16 x 16 km PGDA Site04 tile, not a published landing coordinate. Ground height from LDEM_75S_120M (120 m); the 5 m tile is not used yet."
+      "ref": "highest point of PGDA 5 m tile Site04, chosen by team",
+      "note": "Site04_final_adj_5mpp_surf.tif pixel line 2417, sample 0, height 1805.1 m (LDEM 120 m there: 1800.8 m), 0 m from the nearest tile edge; summit at the tile edge. Not a published landing coordinate; the tile is 16.0 x 16.0 km."
     },
-    "near_field": { "file": "Site04_final_adj_5mpp_surf.tif", "extent_km": 16.0 }
+    "near_field": {
+      "file": "Site04_final_adj_5mpp_surf.tif",
+      "extent_km": 16.0
+    }
   },
   {
     "id": "malapert-massif",
     "name": "Malapert Massif",
     "pgda_site": "Site23",
-    "lat_deg": -85.9948,
-    "lon_deg": -0.2358,
+    "lat_deg": -85.98768,
+    "lon_deg": 2.06813,
     "coord_source": {
       "kind": "dem-metadata",
-      "ref": "PGDA LOLA_5mpp Site23 GeoTIFF extent, centre of the tile (x -500 m, y 121500 m, south polar stereographic)",
-      "note": "Candidate point: the centre of the 21 x 21 km PGDA Site23 tile, not a published landing coordinate. Ground height from LDEM_75S_120M (120 m); the 5 m tile is not used yet."
+      "ref": "highest point of PGDA 5 m tile Site23, chosen by team",
+      "note": "Site23_final_adj_5mpp_surf.tif pixel line 2072, sample 3078, height 5173.6 m (LDEM 120 m there: 5171.5 m), 5605 m from the nearest tile edge. Not a published landing coordinate; the tile is 21.0 x 21.0 km."
     },
-    "near_field": { "file": "Site23_final_adj_5mpp_surf.tif", "extent_km": 21.0 }
+    "near_field": {
+      "file": "Site23_final_adj_5mpp_surf.tif",
+      "extent_km": 21.0
+    }
   },
   {
     "id": "haworth",
     "name": "Haworth",
     "pgda_site": "Haworth",
-    "lat_deg": -86.7639,
-    "lon_deg": -22.777,
+    "lat_deg": -86.36454,
+    "lon_deg": -23.20848,
     "coord_source": {
       "kind": "dem-metadata",
-      "ref": "PGDA LOLA_5mpp Haworth GeoTIFF extent, centre of the tile (x -38000 m, y 90500 m, south polar stereographic)",
-      "note": "Candidate point: the centre of the 29.8 x 29.8 km PGDA Haworth tile, not a published landing coordinate. The tile is wide, so the centre may not be the illuminated rim; to be reviewed. Ground height from LDEM_75S_120M (120 m); the 5 m tile is not used yet."
+      "ref": "highest point of PGDA 5 m tile Haworth, chosen by team",
+      "note": "Haworth_final_adj_5mpp_surf.tif pixel line 809, sample 1888, height 2842.2 m (LDEM 120 m there: 2839.4 m), 4045 m from the nearest tile edge. Not a published landing coordinate; the tile is 29.8 x 29.8 km."
     },
-    "near_field": { "file": "Haworth_final_adj_5mpp_surf.tif", "extent_km": 29.8 }
+    "near_field": {
+      "file": "Haworth_final_adj_5mpp_surf.tif",
+      "extent_km": 29.8
+    }
   },
   {
     "id": "nobile-rim-2",
     "name": "Nobile Rim 2",
     "pgda_site": "DM2",
-    "lat_deg": -83.954,
-    "lon_deg": 58.8221,
+    "lat_deg": -84.07911,
+    "lon_deg": 54.88894,
     "coord_source": {
       "kind": "dem-metadata",
-      "ref": "PGDA LOLA_5mpp DM2 GeoTIFF extent, centre of the tile (x 157000 m, y 95000 m, south polar stereographic)",
-      "note": "Candidate point: the centre of the 20 x 20 km PGDA DM2 tile (Nobile rim 2), not a published landing coordinate. Ground height from LDEM_75S_120M (120 m); the 5 m tile is not used yet."
+      "ref": "highest point of PGDA 5 m tile DM2, chosen by team",
+      "note": "DM2_final_adj_5mpp_surf.tif pixel line 328, sample 0, height 1817.6 m (LDEM 120 m there: 1814.8 m), 0 m from the nearest tile edge; summit at the tile edge. Not a published landing coordinate; the tile is 20.0 x 20.0 km."
     },
-    "near_field": { "file": "DM2_final_adj_5mpp_surf.tif", "extent_km": 20.0 }
+    "near_field": {
+      "file": "DM2_final_adj_5mpp_surf.tif",
+      "extent_km": 20.0
+    }
   }
 ]

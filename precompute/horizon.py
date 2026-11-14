@@ -60,6 +60,27 @@ class PolarDem:
                    radius_m=geo["radius_km"] * 1000.0, name=os.path.basename(img_path))
 
     @classmethod
+    def from_bounds(cls, data, left_m, top_m, scale_m, radius_m=R_MOON_M, name=""):
+        """Grid whose outer pixel edges are at map x = left_m and y = top_m (GeoTIFF convention)."""
+        return cls(data, scale_m, top_m / scale_m - 0.5, -left_m / scale_m - 0.5, 1.0, radius_m, name)
+
+    @classmethod
+    def from_geotiff(cls, path):
+        """PGDA LOLA_5mpp *_surf.tif: south polar stereographic on the 1737.4 km sphere, metres, NaN = no data."""
+        import rasterio
+        with rasterio.open(path) as ds:
+            if ds.crs is None or "stere" not in ds.crs.to_proj4() or "lat_0=-90" not in ds.crs.to_proj4():
+                raise ValueError("%s: expected a south polar stereographic GeoTIFF, got %s" % (path, ds.crs))
+            if abs(ds.res[0] - ds.res[1]) > 1e-9 or ds.transform.b != 0 or ds.transform.d != 0:
+                raise ValueError("%s: expected square, north-up pixels" % path)
+            data = ds.read(1).astype(np.float32)
+            if ds.nodata is not None and not np.isnan(ds.nodata):
+                data[data == ds.nodata] = np.nan
+            dem = cls.from_bounds(data, ds.bounds.left, ds.bounds.top, ds.res[0], name=os.path.basename(path))
+            dem.bounds = (ds.bounds.left, ds.bounds.bottom, ds.bounds.right, ds.bounds.top)
+            return dem
+
+    @classmethod
     def synthetic(cls, n, scale_m, fn, radius_m=R_MOON_M):
         """n x n grid, pole at the centre; fn(x, y) in map metres (x right = 90 E, y up = 0 lon) -> height m."""
         pole = (n - 1) / 2.0
@@ -67,6 +88,26 @@ class PolarDem:
         rows = (pole - np.arange(n)) * scale_m
         x, y = np.meshgrid(cols, rows)
         return cls(np.asarray(fn(x, y), dtype=np.float32), scale_m, pole, pole, 1.0, radius_m, "synthetic")
+
+    @classmethod
+    def synthetic_window(cls, left_m, top_m, n, scale_m, fn, radius_m=R_MOON_M):
+        """n x n grid covering map x in [left, left + n*scale], y in [top - n*scale, top]; fn(x, y) -> height m."""
+        cols = left_m + (np.arange(n) + 0.5) * scale_m
+        rows = top_m - (np.arange(n) + 0.5) * scale_m
+        x, y = np.meshgrid(cols, rows)
+        return cls.from_bounds(np.asarray(fn(x, y), dtype=np.float32), left_m, top_m, scale_m, radius_m, "synthetic-window")
+
+    def argmax_latlon(self):
+        """Highest valid pixel: (lat, lon, height_m, line, sample, distance to the nearest tile edge in pixels)."""
+        i = int(np.nanargmax(self.data))
+        l, s = divmod(i, self.ns)
+        x = (s - self.pole_sample) * self.scale
+        y = (self.pole_line - l) * self.scale
+        rho = math.hypot(x, y)
+        lat = -90.0 + 2.0 * math.degrees(math.atan(rho / (2.0 * self.R)))
+        lon = math.degrees(math.atan2(x, y))
+        edge = min(l, s, self.nl - 1 - l, self.ns - 1 - s)
+        return lat, lon, float(self.data[l, s]) * self.dn_scale, l, s, edge
 
     # ---- coordinates
     def map_xy(self, ux, uy, uz):

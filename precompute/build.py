@@ -83,16 +83,24 @@ def stats(site, diam_sun):
             "both": (sun_up & earth_up).mean(), "longest_dark_h": longest}
 
 
-def build_site(cfg, dem, sky, t):
+def build_site(cfg, dem, sky, t, use_tiles=True):
     t0 = time.time()
-    hz = horizon([dem], cfg["lat_deg"], cfg["lon_deg"], masts=MASTS, n_az=N_AZ, rays_per_bin=RAYS, max_range_m=MAX_RANGE_KM * 1000)
+    layers, dem_list = [dem], [dict(FAR_FIELD)]
+    nf = cfg.get("near_field")
+    if use_tiles and nf and os.path.exists(os.path.join(DATA, nf["file"])):
+        tile = PolarDem.from_geotiff(os.path.join(DATA, nf["file"]))
+        layers = [tile, dem]
+        dem_list = [{"file": nf["file"], "role": "near-field", "resolution_m": tile.scale, "extent_km": nf["extent_km"]}] + dem_list
+    elif nf:
+        print("  %-18s WARNING: near-field tile %s missing, 120 m only" % (cfg["id"], nf["file"]))
+    hz = horizon(layers, cfg["lat_deg"], cfg["lon_deg"], masts=MASTS, n_az=N_AZ, rays_per_bin=RAYS, max_range_m=MAX_RANGE_KM * 1000)
     ground = hz["ground_m"]
     e = sky.altaz(cfg["lat_deg"], cfg["lon_deg"], ground + EPHEM_MAST_M, t)
     site = {
         "id": cfg["id"], "name": cfg["name"], "pgda_site": cfg.get("pgda_site"), "terrain": "dem",
         "lat_deg": cfg["lat_deg"], "lon_deg": cfg["lon_deg"], "ground_elev_m": round(ground, 1),
         "coord_source": cfg["coord_source"],
-        "dem": [dict(FAR_FIELD)],
+        "dem": dem_list,
         "horizons": [{"mast_height_m": m, "max_range_km": MAX_RANGE_KM, "complete": bool(hz["complete"]), "elev_deg": r2(hz["elev_deg"][m])} for m in MASTS],
         "sun": {"alt_deg": r2(e["sun"]["alt_deg"]), "az_deg": r2(e["sun"]["az_deg"] % 360.0)},
         "earth": {"alt_deg": r2(e["earth"]["alt_deg"]), "az_deg": r2(e["earth"]["az_deg"] % 360.0)},
@@ -101,8 +109,8 @@ def build_site(cfg, dem, sky, t):
     for b in ("sun", "earth"):
         site[b]["az_deg"] = [0.0 if v >= 360.0 else v for v in site[b]["az_deg"]]
     diam = {"sun": r3(e["sun"]["diam_deg"]), "earth": r3(e["earth"]["diam_deg"])}
-    print("  %-18s lat %9.4f lon %10.4f ground %7.1f m  horizon complete=%s  %.1f s" % (
-        cfg["id"], cfg["lat_deg"], cfg["lon_deg"], ground, hz["complete"], time.time() - t0))
+    print("  %-18s lat %9.5f lon %10.5f ground %7.1f m (%s)  horizon complete=%s  %.1f s" % (
+        cfg["id"], cfg["lat_deg"], cfg["lon_deg"], ground, "5 m + 120 m" if len(layers) == 2 else "120 m only", hz["complete"], time.time() - t0))
     return site, diam
 
 
@@ -110,6 +118,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--sites", nargs="*", help="site ids to build (default: all, in sites.json order)")
     p.add_argument("--out", default=os.path.join(OUT_DIR, "navigator-data"), help="output path without extension")
+    p.add_argument("--no-tiles", action="store_true", help="ignore the 5 m tiles (120 m LDEM only), for comparisons")
     a = p.parse_args()
     cfgs = json.load(open(os.path.join(ROOT, "precompute", "sites.json")))
     if a.sites:
@@ -124,7 +133,7 @@ def main():
     sites, diam = [], None
     print("building %d site(s): %s .. %s, %d hourly samples" % (len(cfgs), START_UTC, (t[-1].utc_datetime()).strftime("%Y-%m-%dT%H:%M:%SZ"), COUNT))
     for cfg in cfgs:
-        site, d = build_site(cfg, dem, sky, t)
+        site, d = build_site(cfg, dem, sky, t, use_tiles=not a.no_tiles)
         sites.append(site)
         if diam is None:
             diam = d
