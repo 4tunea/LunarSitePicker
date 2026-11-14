@@ -6,7 +6,9 @@
 
 Per site: terrain horizon for masts 2 m and 10 m (precompute/horizon.py, LDEM_75S_120M, 250 km,
 3 rays per 0.5 deg bin) and hourly apparent Sun/Earth alt/az (precompute/ephemeris.py, observer
-at DEM ground + 2 m). Sun/Earth angular diameters are stored once, from the first site. Prints,
+at DEM ground + 2 m). A site outside every DEM layer (north of 75 S) gets a sphere-only record
+instead (contract section 9): terrain "sphere-only", dem [], ground 0 m, horizons = the analytic
+smooth-sphere dip per mast. The build never fails on such a point. Sun/Earth angular diameters are stored once, from the first site. Prints,
 for each site, the Sun altitude range, the share of hours with the Sun up (>= 50 % of the disc
 above the 2 m skyline), the share with Earth up (centre above the skyline), the longest dark
 period, and finally the file sizes.
@@ -16,6 +18,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import math
 import os
 import subprocess
 import sys
@@ -26,7 +29,7 @@ import numpy as np
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 from precompute.ephemeris import FRAME, KERNELS, Sky, hourly_times  # noqa: E402
-from precompute.horizon import PolarDem, horizon  # noqa: E402
+from precompute.horizon import PolarDem, horizon, sphere_dip_deg  # noqa: E402
 
 START_UTC = "2026-11-01T00:00:00Z"
 STEP_S = 3600
@@ -83,6 +86,32 @@ def stats(site, diam_sun):
             "both": (sun_up & earth_up).mean(), "longest_dark_h": longest}
 
 
+def on_dem(layers, lat_deg, lon_deg):
+    """True when at least one elevation layer covers the point (PolarDem.height is NaN off the grid)."""
+    return any(not math.isnan(float(layer.height(lat_deg, lon_deg))) for layer in layers)
+
+
+def sphere_site(cfg, sky, t, t0):
+    """Record for a point outside every DEM layer: no terrain, smooth-sphere horizon (contract section 9).
+    The app ignores horizons[] for terrain != "dem" and computes the dip itself; the values here document it."""
+    e = sky.altaz(cfg["lat_deg"], cfg["lon_deg"], EPHEM_MAST_M, t)
+    site = {
+        "id": cfg["id"], "name": cfg["name"], "pgda_site": cfg.get("pgda_site"), "terrain": "sphere-only",
+        "lat_deg": cfg["lat_deg"], "lon_deg": cfg["lon_deg"], "ground_elev_m": 0.0,
+        "coord_source": cfg["coord_source"],
+        "dem": [],
+        "horizons": [{"mast_height_m": m, "max_range_km": 0.0, "complete": True, "elev_deg": [round(float(sphere_dip_deg(m)), 2)] * N_AZ} for m in MASTS],
+        "sun": {"alt_deg": r2(e["sun"]["alt_deg"]), "az_deg": r2(e["sun"]["az_deg"] % 360.0)},
+        "earth": {"alt_deg": r2(e["earth"]["alt_deg"]), "az_deg": r2(e["earth"]["az_deg"] % 360.0)},
+    }
+    for b in ("sun", "earth"):
+        site[b]["az_deg"] = [0.0 if v >= 360.0 else v for v in site[b]["az_deg"]]
+    diam = {"sun": r3(e["sun"]["diam_deg"]), "earth": r3(e["earth"]["diam_deg"])}
+    print("  %-18s lat %9.5f lon %10.5f outside every DEM layer: sphere-only record, no terrain  %.1f s" % (
+        cfg["id"], cfg["lat_deg"], cfg["lon_deg"], time.time() - t0))
+    return site, diam
+
+
 def build_site(cfg, dem, sky, t, use_tiles=True):
     t0 = time.time()
     layers, dem_list = [dem], [dict(FAR_FIELD)]
@@ -93,6 +122,8 @@ def build_site(cfg, dem, sky, t, use_tiles=True):
         dem_list = [{"file": nf["file"], "role": "near-field", "resolution_m": tile.scale, "extent_km": nf["extent_km"]}] + dem_list
     elif nf:
         print("  %-18s WARNING: near-field tile %s missing, 120 m only" % (cfg["id"], nf["file"]))
+    if not on_dem(layers, cfg["lat_deg"], cfg["lon_deg"]):
+        return sphere_site(cfg, sky, t, t0)
     hz = horizon(layers, cfg["lat_deg"], cfg["lon_deg"], masts=MASTS, n_az=N_AZ, rays_per_bin=RAYS, max_range_m=MAX_RANGE_KM * 1000)
     ground = hz["ground_m"]
     e = sky.altaz(cfg["lat_deg"], cfg["lon_deg"], ground + EPHEM_MAST_M, t)

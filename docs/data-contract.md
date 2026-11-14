@@ -300,9 +300,14 @@ fake fixture is `web/data/navigator-data.fake.js` (`"fake": true`, written by
 - **Hourly ephemeris** with linear interpolation. Event times are approximate to minutes.
 - **Sixteen months only** (2026-11-01 to 2028-02-29). Dates outside have no data.
 - **Sphere-only sites.** Sites outside the 75°S DEM (Apollo, Chang'e, Chandrayaan-3, …)
-  have no terrain. They are **not in this file**. If added later they get
-  `"terrain": "sphere-only"`, `dem: []`, and the app uses the smooth-sphere dip
-  `-acos(R/(R+h_mast))` (≈ −0.087° at 2 m, −0.194° at 10 m). The UI labels them as such.
+  have no terrain. None are in this file yet. `build.py` writes such a site (one that
+  `on_dem()` finds outside every layer) as `"terrain": "sphere-only"`, `dem: []`,
+  `ground_elev_m: 0`, and `horizons[]` with the same masts, `max_range_km: 0`, `complete: true`
+  and `elev_deg` = the analytic dip, so the build never fails on it. The app ignores those
+  horizons for any `terrain` other than `"dem"` and uses the smooth-sphere dip
+  `-acos(R/(R+h_mast))` itself (≈ −0.087° at 2 m, −0.194° at 10 m), labels every verdict
+  "smooth sphere, no terrain", and ranks such points, like past landings and pins, as
+  reference points below the analysed sites.
 - **Spherical Moon.** "Horizontal" uses the radius vector of a 1737.4 km sphere,
   consistent with the LOLA DEMs.
 - **Ephemeris accuracy** is bounded by DE421 and the lunar orientation model. The

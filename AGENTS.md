@@ -29,7 +29,11 @@ Hard constraints:
   3D: info panel left (width `--info-w`, dragged on `#split`), 3D horizon right. 2D: one full-width panel with the
   unrolled skyline (`renderPano`); the globe is hidden. Default view is 3D.
 - Sites: `allSites()` = analysed (`group: 'pole'`) + past landings (`'past'`) + user pins (`'pin'`, kept until reload).
-  All are ranked together and can be compared.
+  Analysed sites (`tier(site) === 0`, terrain `"dem"` from the data file) are ranked and counted on their own.
+  Past landings and pins are **reference points** (`tier 1`): listed after the analysed sites with their own
+  numbering, never among them (list, globe numbers, compare table, wizard, recovery suggestions). Any of them can
+  be compared. Every verdict carries `terrainLabel(site)`: "terrain horizon (LOLA 5 m + 120 m)", "coarse terrain
+  (720 m, lower bound[, incomplete at the grid edge])" or "smooth sphere, no terrain".
 - Compare: `state.picking` (choosing in list/pins), `state.sel`, `state.cmpOpen` (`#comparePanel`).
 - Display settings live in `#displayBox`, moved into whichever technical panel is visible. Globe options `gopt`
   go to `Globe.set`; 3D options go to `SURF.setOption`. The 3D view's own ☰ menu is hidden when embedded.
@@ -52,10 +56,10 @@ Hard constraints:
 | `web/terrain.js` | `Terrain`: terrain-horizon maths on a south-polar grid (browser + node) | yes |
 | `web/moonsky/moon-sky.js` | `<moon-sky>` web component: the first-person surface view | yes |
 | `web/moonsky/{meta,stars,earth}.js`, `ephem/<year>.js`, `dem/<b>-<s>.js` | Data for the surface view, loaded on demand | on demand |
-| `web/data/navigator-data.js` | Real data file (precompute output). **Not written yet** | yes, if present |
+| `web/data/navigator-data.js` | Real data file (precompute output, six analysed sites) | yes |
 | `web/data/navigator-data.fake.js` | FAKE fixture with the real shape (kept for the tools, not loaded) | no |
-| `web/data/past-landings.js` | `PAST_LANDINGS`: 27 past landings (rounded published coordinates); full candidates in the list | yes |
-| `web/data/terrain-lowres.js` | `TERRAIN_LOWRES`: 720 m south-polar grid for pins/past sites south of 80° S | on demand |
+| `web/data/past-landings.js` | `PAST_LANDINGS`: 27 past landings (rounded published coordinates); reference points, ranked after the analysed sites | yes |
+| `web/data/terrain-lowres.js` | `TERRAIN_LOWRES`: 720 m south-polar grid for pins/past sites south of 75° S; loaded before the first render | yes |
 | `web/data/moon-relief.js` | `MOON_RELIEF`: LOLA slope maps (global LDEM_16, polar LDEM_75S_120M) for the globe | on demand |
 | `web/tools/build_relief.py` | Writes `moon-relief.js` (numpy, Pillow; needs the moonsky DEM tiles and `data/LDEM_75S_120M.IMG`) | tool |
 | `web/tools/make_fake_data.js` | Writes the fake fixture (node; needs `data/LDEM_75S_120M.IMG`) | tool |
@@ -63,8 +67,9 @@ Hard constraints:
 | `web/tools/build_texture.py` | Writes a sharper `moon-texture.js` | tool |
 | `web/tools/build_moonsky_data.py` | Writes `web/moonsky/` data (skyfield, numpy, pillow) | tool |
 | `web/tools/test_terrain.js` | Checks for `web/terrain.js` (`node web/tools/test_terrain.js`) | test |
+| `web/tools/test_app.js` | End-to-end checks of the real page in headless Edge/Chrome: data checksums, demo numbers, tiered ranking, badge-vs-3D skyline agreement (`node web/tools/test_app.js`) | test |
 | `docs/data-contract.md` | Schema between precompute and frontend (angles, not verdicts) | doc |
-| `precompute/`, `validation/` | Planned Python pipeline and JPL Horizons comparison. **Only READMEs so far** | — |
+| `precompute/`, `validation/` | Python pipeline (Skyfield + LOLA horizons, writes `web/data/navigator-data.*`) and the JPL Horizons comparison | — |
 | `data/` (gitignored) | Large downloads: LOLA DEMs, Skyfield kernels, star catalogue | — |
 | `ephem.js` | Truncated-Meeus ephemeris; only used by `make_fake_data.js` | no |
 | `sites.js`, `horizons.js`, `build_data.py`, `server.py` | Legacy first version (old site list, untrusted 2° horizons, JPL proxy) | no |
@@ -101,8 +106,12 @@ Script order in `index.html` matters: data files → `moon-texture.js` → `web/
      the *first* site's alt/az. `series(site)` uses them to derive alt/az for any other point
      (checked to 0.01° against the file's other sites). Analysed sites use the file directly.
    - `terrainOf(site)`: `'dem'` (analysed, skyline from the file), `'coarse'` (picked/past spot
-     south of 80° S, skyline computed with `Terrain.horizon` on `TER`, the 720 m grid), or
-     `'sphere'` (no skyline: smooth-sphere dip).
+     south of 75° S, skyline computed with `Terrain.horizon` on `TER`, the 720 m grid, 150 km; rays stop
+     at the grid edge, so between 75° S and about 80° S `site.complete` is false and the label says
+     "incomplete at the grid edge"), or `'sphere'` (no skyline: smooth-sphere dip). `terrainLabel(site)` is
+     the text shown with every verdict; `tier(site)` (0 analysed, 1 reference point) orders every ranking.
+     The grid state `terState` is decided once in `loadTerrain()` before the first `refresh()` (`started`),
+     so no verdict is ever shown with a sphere skyline that a late grid would change.
    - `horizonArr`, `skyline(site, az)`, `fraction`, `vis(site)` (cached per rule set),
      `status(site, k0, m)` (verdict + reason), `nextWindow`.
 2. **State**: `set` (rules: mast, sun, earth, share) and `state` (plan day, slip days, stay days,
@@ -124,8 +133,9 @@ Script order in `index.html` matters: data files → `moon-texture.js` → `web/
    `select(site)` (opens a site → `openSurface`), `back()` (closes → `closeSurface` + fly home),
    `setMission`, `inspect(lat, lon)` (creates the "Picked spot" custom site). Event listeners.
 9. **Surface map and coarse terrain**: `loadSurface()` (globe texture: embedded map, else NASA
-   Moon Trek tiles), `loadTerrain()` (decodes `TERRAIN_LOWRES` with `DecompressionStream`, then
-   rebuilds affected sites and the open surface view).
+   Moon Trek tiles), `loadTerrain()` (decodes `TERRAIN_LOWRES` with `DecompressionStream`; resolves
+   with `terState` `'ready'` or `'unavailable'` after at most 20 s; the first `refresh()` and the setup
+   wizard wait for it, and the status bar reports the outcome).
 10. **Start**: `Globe.init` with callbacks (`draw` → `placePins`, `hover`, `click` → back,
     `pick` (double-click) → `inspect`). `window.NAV_DEBUG` exposes internals for the console.
 
@@ -172,7 +182,8 @@ Hooks passed with `SURF.configure(...)` keep the app the single source of truth:
 | Hook | App implementation | Used by the view for |
 |---|---|---|
 | `sky(t)` | `series(surfSite)` interpolated linearly, azimuth unwrapped; disc sizes from `D.bodies` | Sun/Earth position, size, Earth phase, paths, labels |
-| `skyline(az)` | `skyline(surfSite, az)` for the current mast, or `null` for `'sphere'` sites | conforming the terrain silhouette, visibility, hidden-Sun ring |
+| `skyline(az)` | `skyline(surfSite, az)` for the current mast (the smooth-sphere dip for `'sphere'` sites) | conforming the terrain silhouette, visibility, hidden-Sun ring, rise/set events |
+| `terrain()` | `terrainOf(surfSite)` | `'sphere'`: the skyline still drives labels, events and the ring, but the landscape is left unconformed (illustrative) and labels say "below the horizon"; the app shows `#surfNote` over the view |
 | `height(lat, lon)` | `Terrain.heightAt(TER, …)` south of 75° S | terrain shape (720 m instead of 1.9 km) |
 
 Without hooks (or outside the data period) it uses its own data: built-in Skyfield ephemeris
@@ -216,7 +227,7 @@ and decoded with `DecompressionStream('deflate')`.
    about 9 km, never under the observer) for realism below the DEM resolution. Positions are in
    local ENU metres (x = east, y = north, z = up) with exact spherical curvature; the origin is
    the ground under the observer, the eye is at `z = eyeH` (the app passes the mast height).
-4. **Skyline conforming** (only with a `skyline` hook): beyond 1.5 km (blended to 5 km) each 1°
+4. **Skyline conforming** (only with a `skyline` hook and `terrain()` other than `'sphere'`): beyond 1.5 km (blended to 5 km) each 1°
    segment is shifted by `tan(Δ)·distance` so its silhouette equals the given skyline, and every
    vertex beyond 8 m is clamped to it. This keeps the picture consistent with the verdict.
 5. Normals, then two R32F shadow heightmaps: coarse 1024² over ±200 km (about 390 m) and fine
@@ -243,21 +254,25 @@ skyline.
 
 ## 7. How the numbers are produced (and what is still fake)
 
-- **Data file**: the frontend reads `NAV_DATA` (contract v1.0): hourly Sun/Earth alt/az for 5
-  analysed sites in 2027, 720-bin skylines for masts 2 m and 10 m, disc diameters. The real
-  file (`precompute/`, Skyfield) does not exist yet; the **fake fixture** uses the Meeus
-  `ephem.js`, 120 m-only horizons and placeholder coordinates. The page no longer loads it; the real file exists now.
+- **Data file**: the frontend reads `NAV_DATA` (contract v1.0): hourly Sun/Earth alt/az for the six
+  analysed sites (Nov 2026 to Feb 2028), 720-bin skylines for masts 2 m and 10 m, disc diameters. It is
+  built by `precompute/build.py` (Skyfield + LOLA). The **fake fixture** (Meeus `ephem.js`, 120 m-only
+  horizons, placeholder coordinates) is kept for the tools and not loaded.
 - **Surface-view ephemeris**: real Skyfield/DE421, built by `web/tools/build_moonsky_data.py`,
   which also prints the check against Skyfield. In the app it is only the fallback for
   positions (the data file wins) and the source for stars and Earth's rotation.
 - **Terrain in the 3D view** is for orientation and context; the authoritative skyline is the
-  data file's (or the coarse one), enforced by conforming. Synthetic detail is cosmetic.
+  data file's (or the coarse one), enforced by conforming. Synthetic detail is cosmetic. For sphere
+  points the view keeps the LDEM_16 landscape as illustration, uses the sphere dip for every label and
+  event, and the app shows "No terrain data: smooth-sphere horizon. Landscape is illustrative." over it.
 
 ## 8. Running, rebuilding, testing
 
 ```text
 open index.html                                   # the app (file://)
 node web/tools/test_terrain.js                    # terrain-horizon checks
+node web/tools/test_app.js [--all-js]             # the real page in headless Edge/Chrome: syntax, checksums, ranking, badge vs 3D
+.venv/Scripts/python.exe -m pytest -s precompute/tests   # horizon maths and the sphere-only writer branch
 node web/tools/make_fake_data.js                  # web/data/navigator-data.fake.{js,json}
 python web/tools/build_terrain.py                 # web/data/terrain-lowres.js
 python web/tools/build_moonsky_data.py [--years 2020 2035] [--only ephem|dem|stars|earth]

@@ -71,6 +71,9 @@ shows what a 0.7 km move does. Rules and sources: precompute/sites.json, docs/da
 - The old `sites.js` id 'shackleton' is really Connecting Ridge; new ids must not repeat this.
 - Sites outside the 75S DEM (Apollo, Chang'e, Chandrayaan-3, ...) have no terrain:
   flag them "sphere-only" or leave them out of analysed results.
+- Past landings and user pins are *reference points* (decision 2026-11-14): ranked and counted
+  separately from the analysed sites, never among them, and every verdict is labelled with its
+  skyline source (coarse 720 m grid south of 75 S, lower bound; smooth sphere elsewhere).
 - The existing `horizons.js` is NOT trusted (2° bins, 120 m nearest-neighbour, suspicious
   long constant runs). Replace it with output from the tested horizon code.
 
@@ -97,6 +100,7 @@ shows what a 0.7 km move does. Rules and sources: precompute/sites.json, docs/da
   `C:\Users\adamo\AppData\Local\Programs\Python\Python313\python.exe` (or the .venv).
 - Small commits, one calculation module at a time, each with a test or a printed
   sanity check. If something cannot be verified, say so.
+- Before a frontend PR: `node web/tools/test_app.js` (headless Edge/Chrome) must pass.
 - Stop and report after each step (verified / not verified). If a step runs 20+ min
   over, stop and report instead of continuing.
 - Cut order if behind: custom coordinates, past landings, globe night shading, public mode.
