@@ -144,7 +144,9 @@ Rules the frontend relies on (checked in `app.js`, 2026-11-14):
   `-acos(R/(R+mast))`.
 - Array lengths: `time.count` for every alt/az and diameter series, `horizon_grid.n_az` for
   every `elev_deg`. The app indexes without bounds checks.
-- The `dem[].file` names above are placeholders until the PGDA tiles are downloaded.
+- `dem[]` lists the near-field PGDA 5 m tile (`<label>_final_adj_5mpp_surf.tif`, 16–30 km wide)
+  first and the far-field `LDEM_75S_120M.IMG` second; the horizon uses the finest layer that
+  covers each point.
 
 ## 4. Time series
 
@@ -308,21 +310,23 @@ fake fixture is `web/data/navigator-data.fake.js` (`"fake": true`, written by
 
 ## 10. Site list (fixed order)
 
-| # | id | name | PGDA LOLA_5mpp label | Coordinates (centre of the PGDA tile, from its GeoTIFF extent) | Ground (LDEM 120 m) |
+| # | id | name | PGDA LOLA_5mpp tile | Coordinates (highest point of the 5 m tile) | Ground (5 m tile) |
 |---|---|---|---|---|---|
-| 0 | `connecting-ridge` | Connecting Ridge | Site01 (16 × 16 km) | −89.4632, −137.4896 | 1942.7 m |
-| 1 | `shackleton-rim` | Shackleton Rim | Site04 (16 × 16 km) | −89.7668, −171.8699 | 769.8 m |
-| 2 | `malapert-massif` | Malapert Massif | Site23 (21 × 21 km) | −85.9948, −0.2358 | 4786.3 m |
-| 3 | `haworth` | Haworth | Haworth (29.8 × 29.8 km) | −86.7639, −22.7770 | 1627.6 m |
-| 4 | `nobile-rim-2` | Nobile Rim 2 | DM2 (20 × 20 km) | −83.9540, 58.8221 | 1009.1 m |
+| 0 | `connecting-ridge` | Connecting Ridge | Site01 (16 × 16 km) | −89.43891, −137.14357 | 1959.5 m |
+| 1 | `shackleton-rim` | Shackleton Rim | Site04 (16 × 16 km) | −89.52911, −140.94069 (on the tile's west edge) | 1805.1 m |
+| 2 | `malapert-massif` | Malapert Massif | Site23 (21 × 21 km) | −85.98768, 2.06813 | 5173.6 m |
+| 3 | `haworth` | Haworth | Haworth (29.8 × 29.8 km) | −86.36454, −23.20848 | 2842.2 m |
+| 4 | `nobile-rim-2` | Nobile Rim 2 | DM2 (20 × 20 km) | −84.07911, 54.88894 (on the tile's west edge) | 1817.6 m |
 
-These are **candidate points**, recorded as such in `coord_source` (kind `dem-metadata`, ref =
-the PGDA tile extent). A tile centre is not a published landing coordinate and need not be the
-illuminated high ground: the Site04 and Haworth centres in particular sit low and see Earth
-rarely or never, so they are to be reviewed against the 5 m tiles or Mazarico et al. (2011).
-Coordinates are never invented; the fake fixture's coordinates are placeholders and must not be
-copied. Source of the tile extents: `precompute/sites.json` and the PGDA directory
-https://pgda.gsfc.nasa.gov/data/LOLA_5mpp/ (README lists the site names).
+**Site rule (team decision 2026-11-14):** each site is the highest point of its PGDA 5 m tile
+(`precompute/pick_sites.py`), recorded in `coord_source` as kind `dem-metadata`, ref
+"highest point of PGDA 5 m tile <label>, chosen by team", with the pixel, height, LDEM height and
+distance to the tile edge in `note`. Two summits lie on a tile edge (Site04, DM2), so the real
+summit may continue outside the tile; the Site04 point is 17.6 km from Shackleton's centre and
+2.9 km from the Connecting Ridge point, i.e. not on the crater rim. These are candidate points,
+not published landing coordinates. Coordinates are never invented; the fake fixture's
+coordinates are placeholders and must not be copied. Tiles: https://pgda.gsfc.nasa.gov/data/LOLA_5mpp/
+(`<label>/<label>_final_adj_5mpp_surf.tif`, README lists the site names).
 
 The old `sites.js` id `shackleton` (named "Shackleton connecting ridge") maps to
 **`connecting-ridge`**. `shackleton-rim` is a different site. `sites.js` is a legacy frontend
