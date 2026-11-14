@@ -1,21 +1,177 @@
+/* Lunar landing site navigator: interface.
+   All Sun, Earth and skyline numbers come from NAV_DATA (docs/data-contract.md).
+   Visibility is derived here, following contract section 7, so the rules stay user-settable. */
 (function () {
-  var SUN_R = 0.266, H = 3600000, DAY = 86400000, MARGIN = 336, MIN_SHARE = 75;
-  var NS = 'http://www.w3.org/2000/svg';
-  var HZ = (typeof HORIZONS !== 'undefined' && HORIZONS) || {};
-  var HZ_SRC = (typeof HORIZON_SOURCE !== 'undefined' && HORIZON_SOURCE) || 'terrain';
+  var NS = 'http://www.w3.org/2000/svg', RAD = Math.PI / 180;
   var $ = function (id) { return document.getElementById(id); };
-  var state = { date: new Date().toISOString().slice(0, 10), days: 10, site: null, hour: 0, tech: false, side: window.innerWidth >= 900, custom: null, home: null };
-  try {
-    var saved = JSON.parse(localStorage.getItem('lunarNav') || '{}');
-    if (/^\d{4}-\d\d-\d\d$/.test(saved.date || '')) state.date = saved.date;
-    if (saved.days >= 1 && saved.days <= 60) state.days = Math.round(saved.days);
-    if (typeof saved.tech === 'boolean') state.tech = saved.tech;
-    if (typeof saved.side === 'boolean' && window.innerWidth >= 900) state.side = saved.side;
-  } catch (e) {}
-  function save() { try { localStorage.setItem('lunarNav', JSON.stringify({ date: state.date, days: state.days, tech: state.tech, side: state.side })); } catch (e) {} }
-  var cache = { key: null, states: null, evals: {} }, ranked = { ok: [], no: [] }, pins = [], playing = null;
+  var D = window.NAV_DATA;
+  if (!D || !D.sites || !D.sites.length) {
+    document.body.insertBefore(Object.assign(document.createElement('p'), { className: 'fake', textContent: 'No data file loaded. Expected web/data/navigator-data.js (or the .fake.js fixture).' }), document.body.firstChild.nextSibling);
+    return;
+  }
 
-  /* ---------- helpers ---------- */
+  /* ================= data layer (the only part that knows the file format) ================= */
+  var T0 = Date.parse(D.time.start_utc), STEP = D.time.step_s * 1000, N = D.time.count;
+  var SPD = Math.round(86400 / D.time.step_s);                // samples per day
+  var NAZ = D.horizon_grid.n_az, AZSTEP = D.horizon_grid.step_deg, RKM = D.constants.moon_radius_km;
+  var MASTS = D.sites[0].horizons.map(function (h) { return h.mast_height_m; });
+  var TER = null;                                             // coarse terrain grid for picked spots, once decoded
+
+  function basis(lat, lon) {
+    var a = lat * RAD, o = lon * RAD;
+    return { up: [Math.cos(a) * Math.cos(o), Math.cos(a) * Math.sin(o), Math.sin(a)],
+             east: [-Math.sin(o), Math.cos(o), 0],
+             north: [-Math.sin(a) * Math.cos(o), -Math.sin(a) * Math.sin(o), Math.cos(a)] };
+  }
+  // Moon-fixed Sun direction and Earth position for every sample, recovered from the first site's
+  // angles. They let us place the Sun and Earth for any other point without a second ephemeris.
+  var SUN = new Float64Array(3 * N), EARTH = new Float64Array(3 * N);
+  (function () {
+    var s = D.sites[0], b = basis(s.lat_deg, s.lon_deg), r0 = RKM + s.ground_elev_m / 1000;
+    function dir(alt, az) {
+      var ca = Math.cos(alt * RAD), n = ca * Math.cos(az * RAD), e = ca * Math.sin(az * RAD), u = Math.sin(alt * RAD);
+      return [n * b.north[0] + e * b.east[0] + u * b.up[0], n * b.north[1] + e * b.east[1] + u * b.up[1], n * b.north[2] + e * b.east[2] + u * b.up[2]];
+    }
+    for (var k = 0; k < N; k++) {
+      var d = dir(s.sun.alt_deg[k], s.sun.az_deg[k]);
+      SUN[3 * k] = d[0]; SUN[3 * k + 1] = d[1]; SUN[3 * k + 2] = d[2];
+      var e = dir(s.earth.alt_deg[k], s.earth.az_deg[k]), dist = 6371.0 / Math.sin(D.bodies.earth.diam_deg[k] * RAD / 2);
+      for (var i = 0; i < 3; i++) EARTH[3 * k + i] = r0 * b.up[i] + dist * e[i];
+    }
+  })();
+  function subPoint(arr, k) {
+    var x = arr[3 * k], y = arr[3 * k + 1], z = arr[3 * k + 2], l = Math.hypot(x, y, z);
+    return { lat: Math.asin(z / l) / RAD, lon: Math.atan2(y, x) / RAD, dist: l };
+  }
+
+  function makeSite(kind, o) {
+    return { kind: kind, id: o.id, name: o.name, note: o.note || '', lat: o.lat, lon: o.lon, src: o.src || null, ser: null, hz: null, ground: null, vis: null, visKey: '' };
+  }
+  var ANALYSED = D.sites.map(function (s) {
+    return makeSite('analysed', { id: s.id, name: s.name, note: s.pgda_site ? 'PGDA ' + s.pgda_site : '', lat: s.lat_deg, lon: s.lon_deg, src: s });
+  });
+  var PAST = (window.PAST_LANDINGS || []).map(function (p) { return makeSite('past', p); });
+
+  // Sun and Earth angles for a site: straight from the file for analysed sites, derived otherwise.
+  function series(site) {
+    if (site.ser) return site.ser;
+    if (site.src) return (site.ser = { sunAlt: site.src.sun.alt_deg, sunAz: site.src.sun.az_deg, earthAlt: site.src.earth.alt_deg, earthAz: site.src.earth.az_deg });
+    var b = basis(site.lat, site.lon), r = RKM + (site.ground || 0) / 1000;
+    var s = { sunAlt: new Float32Array(N), sunAz: new Float32Array(N), earthAlt: new Float32Array(N), earthAz: new Float32Array(N) };
+    function dot(a, x, y, z) { return a[0] * x + a[1] * y + a[2] * z; }
+    for (var k = 0; k < N; k++) {
+      var x = SUN[3 * k], y = SUN[3 * k + 1], z = SUN[3 * k + 2];
+      s.sunAlt[k] = Math.asin(dot(b.up, x, y, z)) / RAD;
+      s.sunAz[k] = (Math.atan2(dot(b.east, x, y, z), dot(b.north, x, y, z)) / RAD + 360) % 360;
+      x = EARTH[3 * k] - r * b.up[0]; y = EARTH[3 * k + 1] - r * b.up[1]; z = EARTH[3 * k + 2] - r * b.up[2];
+      var l = Math.hypot(x, y, z);
+      s.earthAlt[k] = Math.asin(dot(b.up, x, y, z) / l) / RAD;
+      s.earthAz[k] = (Math.atan2(dot(b.east, x, y, z), dot(b.north, x, y, z)) / RAD + 360) % 360;
+    }
+    return (site.ser = s);
+  }
+  // 'dem' = horizons from the data file, 'coarse' = built here from the low-resolution grid, 'sphere' = none.
+  function terrainOf(site) {
+    if (site.src) return site.src.terrain === 'dem' ? 'dem' : 'sphere';
+    if (site.hz === null) {
+      site.hz = false;
+      if (TER && site.lat <= -80) {
+        var h = Terrain.horizon(TER, site.lat, site.lon, MASTS, { nAz: NAZ, maxRange: 150000 });
+        if (h && h.complete) { site.hz = h.elev; site.ground = h.ground; site.ser = null; }
+      }
+    }
+    return site.hz ? 'coarse' : 'sphere';
+  }
+  function horizonArr(site) {
+    var mi = Math.max(0, MASTS.indexOf(set.mast));
+    if (site.src) return site.src.terrain === 'dem' ? site.src.horizons[mi].elev_deg : null;
+    return terrainOf(site) === 'coarse' ? site.hz[mi] : null;
+  }
+  // Skyline height at any azimuth: linear between bins, wrapping (contract section 2).
+  function skyline(site, az) {
+    var arr = horizonArr(site);
+    if (!arr) return Terrain.dip(set.mast);
+    var i = (((az % 360) + 360) % 360) / AZSTEP, a = Math.floor(i) % NAZ, f = i - Math.floor(i);
+    return arr[a] * (1 - f) + arr[(a + 1) % NAZ] * f;
+  }
+  // Share of a disc of radius r above a flat horizon line 'clear' degrees below its centre (section 7).
+  function fraction(clear, r) {
+    var x = Math.max(-1, Math.min(1, clear / r));
+    return 1 - (Math.acos(x) - x * Math.sqrt(1 - x * x)) / Math.PI;
+  }
+  // Per-sample visibility for the whole data period, cached until a rule changes.
+  function vis(site) {
+    var key = [set.mast, set.sun, set.earth].join('|') + (TER ? 't' : '');
+    terrainOf(site);
+    if (site.vis && site.visKey === key) return site.vis;
+    var s = series(site), v = { sun: new Uint8Array(N), earth: new Uint8Array(N), frac: new Float32Array(N), sunSky: new Float32Array(N), earthSky: new Float32Array(N), pre: new Int32Array(N + 1) };
+    for (var k = 0; k < N; k++) {
+      var hs = skyline(site, s.sunAz[k]), he = skyline(site, s.earthAz[k]);
+      v.sunSky[k] = hs; v.earthSky[k] = he;
+      v.frac[k] = fraction(s.sunAlt[k] - hs, D.bodies.sun.diam_deg[k] / 2);
+      v.sun[k] = v.frac[k] >= set.sun ? 1 : 0;
+      v.earth[k] = s.earthAlt[k] - he > set.earth ? 1 : 0;
+      v.pre[k + 1] = v.pre[k] + (v.sun[k] & v.earth[k]);
+    }
+    site.vis = v; site.visKey = key;
+    return v;
+  }
+  // Verdict for landing at sample k0 and staying m samples.
+  function status(site, k0, m) {
+    var v = vis(site), s = series(site), end = Math.min(N - 1, k0 + m), total = Math.max(1, end - k0);
+    var both = v.pre[k0 + total] - v.pre[k0], st = { k0: k0, both: both, total: total, share: both / total, cut: k0 + m > N - 1 };
+    st.sunNow = !!v.sun[k0]; st.earthNow = !!v.earth[k0];
+    st.ok = st.sunNow && st.earthNow && st.share >= set.share;
+    var dipNow = Terrain.dip(set.mast);
+    if (st.ok) st.why = 'Sun and Earth for ' + hrs(both) + ' of the ' + hrs(total) + ' stay';
+    else if (!st.sunNow) st.why = s.sunAlt[k0] + D.bodies.sun.diam_deg[k0] / 2 > dipNow ? 'The Sun is behind terrain at landing' : 'The Sun is below the horizon at landing';
+    else if (!st.earthNow) st.why = s.earthAlt[k0] > dipNow ? 'Earth is behind terrain at landing' : 'Earth is below the horizon at landing';
+    else st.why = 'Sun and Earth for only ' + Math.round(st.share * 100) + '% of the stay';
+    return st;
+  }
+  // First later landing day (same hour) on which the site works, in days from k0. Null if none in the data.
+  function nextWindow(site, k0, m) {
+    for (var d = 1; k0 + d * SPD + m <= N - 1; d++) if (status(site, k0 + d * SPD, m).ok) return d;
+    return null;
+  }
+
+  /* ================= state ================= */
+  var set = { mast: MASTS[0], sun: 0.5, earth: 0, share: 0.5 };
+  var state = { plan: 0, slip: 0, days: 14, site: null, cur: 0, tech: false, side: window.innerWidth >= 900, custom: null, home: null };
+  var hadPlan = false;
+  try {
+    var sv = JSON.parse(localStorage.getItem('lunarNav2') || '{}');
+    if (sv.data === D.time.start_utc + D.generator) {
+      if (sv.plan >= 0 && sv.plan < N / SPD) { state.plan = sv.plan | 0; hadPlan = true; }
+      if (sv.slip >= 0) state.slip = sv.slip | 0;
+      if (sv.days >= 1 && sv.days <= 60) state.days = sv.days | 0;
+      if (sv.set && MASTS.indexOf(sv.set.mast) >= 0) set = sv.set;
+    }
+    if (typeof sv.tech === 'boolean') state.tech = sv.tech;
+    if (typeof sv.side === 'boolean' && window.innerWidth >= 900) state.side = sv.side;
+  } catch (e) {}
+  function save() {
+    try { localStorage.setItem('lunarNav2', JSON.stringify({ data: D.time.start_utc + D.generator, plan: state.plan, slip: state.slip, days: state.days, tech: state.tech, side: state.side, set: set })); } catch (e) {}
+  }
+  var planK = function () { return state.plan * SPD; }, landK = function () { return Math.min(N - 1, (state.plan + state.slip) * SPD); };
+  var M = function () { return state.days * SPD; };
+  var spanK = function () { return Math.min(N - 1 - planK(), Math.max(56, state.slip + state.days + 14) * SPD); };   // timeline length
+  var curK = function () { return Math.min(N - 1, planK() + state.cur); };
+  // Opening scenario: the first site works on the planned date, fails three weeks later, and another site still works then.
+  function findDemo() {
+    var hero = ANALYSED[0], m = M(), first = -1;
+    for (var d = 0; (d + 21) * SPD + m < N; d++) {
+      if (!status(hero, d * SPD, m).ok) continue;
+      if (first < 0) first = d;
+      var k2 = (d + 21) * SPD;
+      if (!status(hero, k2, m).ok && ANALYSED.some(function (s) { return s !== hero && status(s, k2, m).ok; })) return d;
+    }
+    return Math.max(0, first);
+  }
+  if (!hadPlan) state.plan = findDemo();
+  var pins = [], playing = null, ranked = [], pastRanked = [];
+
+  /* ================= helpers ================= */
   function el(tag, attrs, text) {
     var n = document.createElementNS(NS, tag);
     for (var k in attrs) n.setAttribute(k, attrs[k]);
@@ -33,127 +189,80 @@
     clear(table);
     data.forEach(function (r) { var tr = html('tr'); tr.appendChild(html('td', '', r[0])); tr.appendChild(html('td', '', r[1])); table.appendChild(tr); });
   }
-  function t0() { return Date.parse(state.date + 'T00:00:00Z'); }
-  function M() { return state.days * 24; }          // mission length in hours
-  function L() { return M() + MARGIN; }             // hours computed (mission plus two weeks)
-  function dur(hours) {
-    if (hours < 1) return Math.max(1, Math.round(hours * 60)) + ' min';
-    var d = Math.floor(hours / 24), h = Math.round(hours - d * 24);
-    if (h === 24) { d += 1; h = 0; }
-    return d ? d + ' d ' + h + ' h' : h + ' h';
+  function ms(k) { return T0 + k * STEP; }
+  function hrs(samples) { var h = samples * STEP / 3600000, d = Math.round(h / 2.4) / 10; return h >= 48 ? d + ' d' : Math.round(h) + ' h'; }
+  function dur(samples) {
+    var h = samples * STEP / 3600000;
+    if (h < 1) return Math.max(1, Math.round(h * 60)) + ' min';
+    var d = Math.floor(h / 24), r = Math.round(h - d * 24);
+    if (r === 24) { d += 1; r = 0; }
+    return d ? d + ' d ' + r + ' h' : r + ' h';
   }
   function coord(lat, lon) {
-    return Math.abs(lat).toFixed(2) + '° ' + (lat < 0 ? 'S' : 'N') + ', ' + Math.abs(lon).toFixed(2) + '° ' + (lon < 0 ? 'W' : 'E');
+    return Math.abs(lat).toFixed(3) + '° ' + (lat < 0 ? 'S' : 'N') + ', ' + Math.abs(lon).toFixed(3) + '° ' + (lon < 0 ? 'W' : 'E');
   }
   function lonText(lon) { lon = ((lon + 540) % 360) - 180; return Math.abs(lon).toFixed(1) + '° ' + (lon < 0 ? 'W' : 'E'); }
-  function fmtTime(ms) { return new Date(ms).toISOString().slice(0, 16).replace('T', ' ') + ' UTC'; }
-  function shortDate(ms) { return new Date(ms).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }); }
-  function longDate() { return new Date(t0()).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }); }
+  function fmtTime(k) { return new Date(ms(k)).toISOString().slice(0, 16).replace('T', ' ') + ' UTC'; }
+  function dayText(k, year) {
+    var o = { day: 'numeric', month: 'short', timeZone: 'UTC' }; if (year) o.year = 'numeric';
+    return new Date(ms(k)).toLocaleDateString('en-GB', o);
+  }
+  function isoDay(day) { return new Date(T0 + day * 86400000).toISOString().slice(0, 10); }
   function deg(v) { return (v < 0 ? '−' : '') + Math.abs(v).toFixed(2) + '°'; }
+  var TERRAIN_TEXT = { dem: 'Analysed terrain', coarse: 'Coarse terrain, 720 m grid', sphere: 'Smooth sphere, no terrain' };
 
-  /* ---------- model ---------- */
-  // Height of the skyline (degrees) in a compass direction. Zero without terrain data.
-  function skyline(site, az) {
-    var h = HZ[site.id];
-    if (!h) return 0;
-    var n = h.el.length, i = (((az % 360) + 360) % 360) / 360 * n, a = Math.floor(i) % n, f = i - Math.floor(i);
-    return h.el[a] * (1 - f) + h.el[(a + 1) % n] * f;
-  }
-  function prepare() {
-    var key = state.date + '|' + L();
-    if (cache.key === key) return;
-    var s = [], start = t0();
-    for (var h = 0; h <= L(); h++) s.push(Ephem.state(start + h * H));
-    cache = { key: key, states: s, evals: {} };
-  }
-  function evaluate(site) {
-    prepare();
-    var key = site.id + ':' + site.lat + ',' + site.lon;
-    if (cache.evals[key]) return cache.evals[key];
-    var m = M(), n = L();
-    var e = { site: site, sunEl: [], sunAz: [], earthEl: [], earthAz: [], sunUp: [], earthUp: [], sunSky: [], terrain: !!HZ[site.id] };
-    var sun = 0, earth = 0, both = 0, win = -1, sunrise = -1, anyEarth = false;
-    for (var h = 0; h <= n; h++) {
-      var v = Ephem.at(cache.states[h], site.lat, site.lon);
-      var ss = skyline(site, v.sun.az), a = v.sun.el + SUN_R > ss, b = v.earth.el > skyline(site, v.earth.az);
-      e.sunEl.push(v.sun.el); e.sunAz.push(v.sun.az); e.earthEl.push(v.earth.el); e.earthAz.push(v.earth.az);
-      e.sunUp.push(a); e.earthUp.push(b); e.sunSky.push(ss);
-      if (h <= m) { if (a) sun++; if (b) earth++; if (a && b) both++; }
-      if (a && sunrise < 0) sunrise = h;
-      if (b) anyEarth = true;
-      if (win < 0 && !(a && b)) win = h;
-    }
-    e.sunPct = Math.round(100 * sun / (m + 1)); e.earthPct = Math.round(100 * earth / (m + 1));
-    e.score = Math.round(100 * both / (m + 1));
-    e.whole = win < 0; e.window = e.whole ? n : Math.max(0, win - 1);
-    e.spare = e.window >= m ? e.window - m : -1;
-    e.ok = e.sunUp[0] && e.earthUp[0] && e.score >= MIN_SHARE;
-    if (e.ok && e.spare >= 0) e.why = 'Sun and Earth for the whole stay, ' + (e.whole ? 'over 14 d' : dur(e.spare)) + ' to spare';
-    else if (e.ok) e.why = 'Sun and Earth for ' + e.score + '% of the stay';
-    else if (!anyEarth) e.why = 'Earth does not come into view. Needs a relay satellite.';
-    else if (!e.sunUp[0]) e.why = sunrise < 0 ? 'The Sun stays down for the whole stay.' : 'The Sun is down at landing. Sunrise in ' + dur(sunrise) + '.';
-    else if (!e.earthUp[0]) e.why = 'Earth is out of view at landing.';
-    else e.why = 'Sun and Earth for only ' + e.score + '% of the stay.';
-    cache.evals[key] = e;
-    return e;
-  }
+  /* ================= lists and pins ================= */
   function rank() {
-    var list = SITES.slice(); if (state.custom) list.push(state.custom);
-    var all = list.map(evaluate).sort(function (a, b) { return b.score - a.score || b.window - a.window || b.sunPct - a.sunPct; });
-    ranked = { ok: all.filter(function (e) { return e.ok; }), no: all.filter(function (e) { return !e.ok; }) };
-    ranked.ok.forEach(function (e, i) { e.rank = i + 1; });
-    ranked.no.forEach(function (e) { e.rank = 0; });
-  }
-  function nextFlip(arr, hour) {
-    for (var i = hour + 1; i < arr.length; i++) if (arr[i] !== arr[hour]) return i - hour - 0.5;
-    return null;
-  }
-  function runs(arr, upto) {
-    var out = [], start = -1;
-    for (var i = 0; i <= upto; i++) {
-      if (arr[i] && start < 0) start = i;
-      if ((!arr[i] || i === upto) && start >= 0) { out.push([start, arr[i] ? i : i - 1]); start = -1; }
+    var k = landK(), m = M();
+    function order(list) {
+      return list.map(function (s) { return { site: s, st: status(s, k, m), was: state.slip ? status(s, planK(), m) : null }; })
+        .sort(function (a, b) { return (b.st.ok - a.st.ok) || (b.st.both - a.st.both); });
     }
-    return out;
+    ranked = order(ANALYSED);
+    ranked.forEach(function (e, i) { e.rank = e.st.ok ? i + 1 : 0; });
+    pastRanked = $('pastBox').open ? order(PAST) : [];
   }
-
-  /* ---------- sidebar and pins ---------- */
   function listItem(e) {
-    var li = html('li'), b = html('button', 'item' + (state.site && state.site.id === e.site.id ? ' on' : '')); b.type = 'button';
-    b.appendChild(html('span', 'n', e.rank ? String(e.rank) : '–'));
-    b.appendChild(html('span', '', e.site.name));
-    b.appendChild(html('span', 'why', e.why));
-    var meta = html('small', '', e.site.note || coord(e.site.lat, e.site.lon));
-    meta.appendChild(html('span', 'score', 'Score ' + e.score + ', Sun ' + e.sunPct + '%, Earth ' + e.earthPct + '%, ' + (e.terrain ? 'terrain horizon' : 'smooth horizon')));
+    var s = e.site, ref = s.kind !== 'analysed';
+    var li = html('li'), b = html('button', 'item' + (e.st.ok ? '' : ' bad') + (ref ? ' ref' : '') + (state.site === s ? ' on' : '')); b.type = 'button';
+    b.appendChild(html('span', 'n', ref ? (e.st.ok ? '✓' : '–') : e.rank ? String(e.rank) : '!'));
+    b.appendChild(html('span', '', s.name));
+    b.appendChild(html('span', 'why', e.st.why));
+    if (e.was && e.was.ok && !e.st.ok) b.appendChild(html('span', 'was', 'Worked on the planned date'));
+    var meta = html('small', '', s.note || coord(s.lat, s.lon));
+    meta.appendChild(html('span', 'score', Math.round(e.st.share * 100) + '% of the stay, ' + TERRAIN_TEXT[terrainOf(s)].toLowerCase()));
     b.appendChild(meta);
-    b.addEventListener('click', function () { select(e.site); });
+    b.addEventListener('click', function () { select(s); });
     li.appendChild(b);
     return li;
   }
   function renderList() {
-    $('sideSub').textContent = ranked.ok.length + ' of ' + (ranked.ok.length + ranked.no.length) + ' sites suit a ' + state.days + '-day stay from ' + longDate() + '. Best first.';
-    var a = $('rank'), b = $('notRank'); clear(a); clear(b);
-    ranked.ok.forEach(function (e) { a.appendChild(listItem(e)); });
-    ranked.no.forEach(function (e) { b.appendChild(listItem(e)); });
-    if (!ranked.ok.length) a.appendChild(html('li', 'hint', 'No site suits this mission. Try another landing date or a shorter stay.'));
-    $('notHead').hidden = !ranked.no.length;
+    var good = ranked.filter(function (e) { return e.st.ok; }).length;
+    $('sideSub').textContent = good + ' of ' + ranked.length + ' work for landing on ' + dayText(landK(), true) + ' and a ' + state.days + '-day stay.';
+    var a = $('rank'); clear(a);
+    ranked.forEach(function (e) { a.appendChild(listItem(e)); });
+    $('pastSum').textContent = 'Past landings (' + PAST.length + '), for reference';
+    var p = $('pastList'); clear(p);
+    pastRanked.forEach(function (e) { p.appendChild(listItem(e)); });
   }
   function renderPins() {
     var wrap = $('pins'); clear(wrap); pins = [];
-    var show = ranked.ok.slice();
-    if (state.site) { var sel = evaluate(state.site); if (!sel.ok) show.push(sel); }
-    show.forEach(function (e) {
-      var on = state.site && state.site.id === e.site.id;
-      var b = html('button', 'pin' + (e.rank && e.rank <= 3 ? ' top' : '') + (on ? ' on' : '') + (e.ok ? '' : ' offpin'), e.rank ? String(e.rank) : '');
-      b.type = 'button'; b.style.zIndex = String(50 - (e.rank || 50));
-      b.setAttribute('aria-label', e.site.name + (e.rank ? ', pick ' + e.rank : ', not recommended'));
-      b.appendChild(html('span', 'lbl', e.site.name));
-      b.addEventListener('click', function () { select(e.site); });
-      wrap.appendChild(b); pins.push({ node: b, lat: e.site.lat, lon: e.site.lon });
-    });
+    function add(e, ref) {
+      var s = e.site, on = state.site === s;
+      var b = html('button', 'pin' + (ref ? ' ref' : e.st.ok ? '' : ' bad') + (!ref && e.rank && e.rank <= 3 ? ' top' : '') + (on ? ' on' : ''), ref ? '' : e.rank ? String(e.rank) : '!');
+      b.type = 'button'; b.style.zIndex = String(ref ? 5 : 50 - (e.rank || 40));
+      b.setAttribute('aria-label', s.name + (e.st.ok ? ', available' : ', not available'));
+      b.appendChild(html('span', 'lbl', s.name));
+      b.addEventListener('click', function () { select(s); });
+      wrap.appendChild(b); pins.push({ node: b, lat: s.lat, lon: s.lon });
+    }
+    pastRanked.forEach(function (e) { add(e, true); });
+    ranked.forEach(function (e) { add(e, false); });
+    if (state.site && state.site.kind !== 'analysed' && !pastRanked.some(function (e) { return e.site === state.site; }))
+      add({ site: state.site, st: status(state.site, landK(), M()), rank: 0 }, false);
     if (state.tech) {
-      var s = cache.states[state.hour];
-      [['s', 'Sun overhead', s.subSun], ['e', 'Earth overhead', s.subEarth]].forEach(function (m) {
+      var k = state.site ? curK() : landK();
+      [['s', 'Sun overhead', subPoint(SUN, k)], ['e', 'Earth overhead', subPoint(EARTH, k)]].forEach(function (m) {
         var d = html('div', 'mark ' + m[0]); d.appendChild(html('span', '', m[1]));
         wrap.appendChild(d); pins.push({ node: d, lat: m[2].lat, lon: m[2].lon });
       });
@@ -168,50 +277,80 @@
     });
   }
   function lightGlobe() {
-    prepare();
-    var s = cache.states[state.hour];
-    Globe.set({ sun: Globe.dir(s.subSun.lat, s.subSun.lon), earth: Globe.dir(s.subEarth.lat, s.subEarth.lon), grid: state.tech });
+    var k = state.site ? curK() : landK(), s = subPoint(SUN, k), e = subPoint(EARTH, k);
+    Globe.set({ sun: Globe.dir(s.lat, s.lon), earth: Globe.dir(e.lat, e.lon), grid: state.tech });
   }
 
-  /* ---------- whole-Moon technical panel ---------- */
+  /* ================= whole-Moon technical panel ================= */
   function renderMoonTech() {
     $('moonTech').hidden = !state.tech || !!state.site;
     if ($('moonTech').hidden) return;
-    var s = cache.states[0], a = Globe.dir(s.subSun.lat, s.subSun.lon), b = Globe.dir(s.subEarth.lat, s.subEarth.lon);
-    var k = (1 + a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) / 2;
-    var waxing = (((s.subSun.lon - s.subEarth.lon) + 540) % 360) - 180 > 0;
-    var name = k < 0.03 ? 'New Moon' : k > 0.97 ? 'Full Moon' : Math.abs(k - 0.5) < 0.04 ? (waxing ? 'First quarter' : 'Last quarter') :
-      (waxing ? 'Waxing ' : 'Waning ') + (k < 0.5 ? 'crescent' : 'gibbous');
-    var sl = s.subSun.lat;
+    var k = landK(), s = subPoint(SUN, k), e = subPoint(EARTH, k), a = Globe.dir(s.lat, s.lon), b = Globe.dir(e.lat, e.lon);
+    var lit = (1 + a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) / 2, waxing = (((s.lon - e.lon) + 540) % 360) - 180 > 0;
+    var name = lit < 0.03 ? 'New Moon' : lit > 0.97 ? 'Full Moon' : Math.abs(lit - 0.5) < 0.04 ? (waxing ? 'First quarter' : 'Last quarter') :
+      (waxing ? 'Waxing ' : 'Waning ') + (lit < 0.5 ? 'crescent' : 'gibbous');
     rows($('moonTable'), [
-      ['Phase seen from Earth', name + ', ' + Math.round(k * 100) + '% lit'],
-      ['Sun overhead at', coord(s.subSun.lat, s.subSun.lon)],
-      ['Earth overhead at (libration)', coord(s.subEarth.lat, s.subEarth.lon)],
-      ['Sunrise line', lonText(s.subSun.lon - 90)],
-      ['Sunset line', lonText(s.subSun.lon + 90)],
-      ['South pole season', (sl < 0 ? 'Summer' : 'Winter') + ', Sun ' + Math.abs(sl).toFixed(2) + '° ' + (sl < 0 ? 'south' : 'north')],
-      ['Earth distance', Math.round(s.dist).toLocaleString('en-US') + ' km']
+      ['Landing', fmtTime(k)],
+      ['Phase seen from Earth', name + ', ' + Math.round(lit * 100) + '% lit'],
+      ['Sun overhead at', coord(s.lat, s.lon)], ['Earth overhead at (libration)', coord(e.lat, e.lon)],
+      ['Sunrise line', lonText(s.lon - 90)], ['Sunset line', lonText(s.lon + 90)],
+      ['South pole season', (s.lat < 0 ? 'Summer' : 'Winter') + ', Sun ' + Math.abs(s.lat).toFixed(2) + '° ' + (s.lat < 0 ? 'south' : 'north')],
+      ['Earth distance', Math.round(e.dist).toLocaleString('en-US') + ' km']
     ]);
-    $('ruleNote').textContent = 'The score is the share of the ' + state.days + '-day stay with both sunlight and Earth in view. A site is recommended when both are there at landing and the score is at least ' + MIN_SHARE + '. Ties go to the site that keeps both longest after take-off. Sites marked T use real terrain for the skyline; the others use a smooth sphere. Slopes and landing hazards are not included.';
     var t = $('rankTable'); clear(t);
-    var head = html('tr'); ['Site', 'Score', 'Sun', 'Earth', 'Spare'].forEach(function (h) { head.appendChild(html('th', '', h)); });
+    var head = html('tr'); ['Site', 'Both', 'Share', 'Next window'].forEach(function (h) { head.appendChild(html('th', '', h)); });
     t.appendChild(head);
-    ranked.ok.concat(ranked.no).forEach(function (e) {
-      var tr = html('tr', e.ok ? '' : 'no');
-      [(e.rank ? e.rank + '. ' : '') + e.site.name + (e.terrain ? ' (T)' : ''), e.score, e.sunPct + '%', e.earthPct + '%',
-       e.spare < 0 ? 'None' : e.whole ? '14 d+' : dur(e.spare)].forEach(function (c) { tr.appendChild(html('td', '', String(c))); });
+    ranked.forEach(function (r) {
+      var tr = html('tr', r.st.ok ? '' : 'no'), nw = r.st.ok ? 'Now' : nextWindow(r.site, k, M());
+      [(r.rank ? r.rank + '. ' : '') + r.site.name, hrs(r.st.both), Math.round(r.st.share * 100) + '%', nw === 'Now' ? nw : nw == null ? 'None' : '+' + nw + ' d']
+        .forEach(function (c) { tr.appendChild(html('td', '', String(c))); });
       t.appendChild(tr);
     });
+    rows($('dataTable'), [
+      ['Status', D.fake ? 'FAKE fixture' : 'Precomputed'], ['Generator', D.generator], ['Generated', D.generated_utc],
+      ['Positions', D.ephemeris.software], ['Corrections', D.ephemeris.corrections],
+      ['Covers', dayText(0, true) + ' to ' + dayText(N - 1, true)], ['Skyline bins', NAZ + ' (' + AZSTEP + '°)']
+    ]);
+  }
+  function fillRules() {
+    var sel = $('setMast'); clear(sel);
+    MASTS.forEach(function (m) { var o = html('option', '', m + ' m'); o.value = m; sel.appendChild(o); });
+    sel.value = set.mast; $('setSun').value = Math.round(set.sun * 100); $('setEarth').value = set.earth; $('setShare').value = Math.round(set.share * 100);
   }
 
-  /* ---------- site inspector ---------- */
-  function renderSky(e, v) {
+  /* ================= site inspector ================= */
+  function renderOptions(site, st) {
+    var box = $('options'); clear(box);
+    box.hidden = st.ok;
+    if (st.ok) return;
+    var k = landK(), m = M();
+    box.appendChild(html('h3', '', 'Two ways to recover'));
+    box.appendChild(html('h4', '', 'Switch site, keep ' + dayText(k)));
+    var alts = ranked.filter(function (r) { return r.st.ok && r.site !== site; }).slice(0, 3);
+    if (!alts.length) box.appendChild(html('p', '', 'No analysed site works on this date.'));
+    alts.forEach(function (r) {
+      var b = html('button', 'opt'); b.type = 'button';
+      b.appendChild(html('b', '', r.site.name)); b.appendChild(html('small', '', hrs(r.st.both) + ' of ' + hrs(r.st.total) + ' with Sun and Earth'));
+      b.addEventListener('click', function () { select(r.site); });
+      box.appendChild(b);
+    });
+    box.appendChild(html('h4', '', 'Keep ' + site.name + ', land later'));
+    var d = nextWindow(site, k, m);
+    if (d == null) box.appendChild(html('p', '', 'No later window before the data ends on ' + dayText(N - 1, true) + '.'));
+    else {
+      var nb = html('button', 'opt'); nb.type = 'button';
+      nb.appendChild(html('b', '', 'Land on ' + dayText(k + d * SPD, true))); nb.appendChild(html('small', '', d + (d === 1 ? ' day' : ' days') + ' later'));
+      nb.addEventListener('click', function () { setMission(state.plan, state.slip + d, state.days); });
+      box.appendChild(nb);
+    }
+  }
+  function renderSky(site, k) {
     var svg = $('sky'); clear(svg);
-    var W = 800, TOP = 16, BOT = 250, m = M(), site = e.site, i;
-    var peak = -90, ridge = 0;
-    for (i = 0; i <= m; i++) peak = Math.max(peak, e.sunEl[i], e.earthEl[i]);
+    var s = series(site), W = 800, TOP = 16, BOT = 250, a0 = landK(), a1 = Math.min(N - 1, a0 + M()), i;
+    var peak = -90, ridge = -90;
+    for (i = a0; i <= a1; i++) peak = Math.max(peak, s.sunAlt[i], s.earthAlt[i]);
     for (i = 0; i < 360; i += 2) ridge = Math.max(ridge, skyline(site, i));
-    var elMax = Math.min(90, Math.max(12, Math.ceil(Math.max(peak, ridge) + 5))), elMin = -Math.max(6, elMax * 0.3);
+    var elMax = Math.min(90, Math.max(10, Math.ceil(Math.max(peak, ridge) + 4))), elMin = -Math.max(5, elMax * 0.3);
     var X = function (az) { return ((az + 180) % 360) / 360 * W; };
     var Y = function (a) { return TOP + (elMax - a) / (elMax - elMin) * (BOT - TOP); };
     for (i = 0; i < 70; i++) {
@@ -223,76 +362,92 @@
       svg.appendChild(el('line', { x1: 0, x2: W, y1: Y(g), y2: Y(g), stroke: '#1d2548', 'stroke-width': 1 }));
       svg.appendChild(el('text', { x: 8, y: Y(g) - 4, fill: '#7d88ad', 'font-size': 11 }, g + '°'));
     }
-    function trace(az, elv, color) {
+    function trace(az, alt, color) {
       var d = '', px = null;
-      for (var j = 0; j <= m; j++) {
-        var x = X(az[j]), y = Y(Math.max(elMin, elv[j]));
+      for (var j = a0; j <= a1; j++) {
+        var x = X(az[j]), y = Y(Math.max(elMin, alt[j]));
         d += (px == null || Math.abs(x - px) > W / 2 ? 'M' : 'L') + x.toFixed(1) + ' ' + y.toFixed(1); px = x;
       }
-      svg.appendChild(el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.5, opacity: 0.45 }));
+      svg.appendChild(el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.5, opacity: 0.5 }));
     }
-    trace(e.sunAz, e.sunEl, '#f5c64f'); trace(e.earthAz, e.earthEl, '#6cb0ee');
-    function body(p, up, color, r, name) {
-      var x = X(p.az), y = Y(Math.max(elMin * 0.55, p.el)), a = { cx: x, cy: y, r: r };
+    trace(s.sunAz, s.sunAlt, '#F5A524'); trace(s.earthAz, s.earthAlt, '#5AA9FF');
+    function body(az, alt, up, color, r, name) {
+      var x = X(az), y = Y(Math.max(elMin * 0.55, alt)), a = { cx: x, cy: y, r: r };
       if (up) a.fill = color; else { a.fill = 'none'; a.stroke = color; a['stroke-width'] = 1.5; a['stroke-dasharray'] = '3 3'; }
       svg.appendChild(el('circle', a));
       var right = x < W - 70;
       svg.appendChild(el('text', { x: x + (right ? r + 6 : -r - 6), y: y + 4, fill: color, 'font-size': 13, 'font-weight': 600, 'text-anchor': right ? 'start' : 'end' }, name));
     }
-    var sunUp = v.sun.el + SUN_R > skyline(site, v.sun.az), earthUp = v.earth.el > skyline(site, v.earth.az);
-    // bodies that are up go behind nothing; the ground is drawn after so it hides anything below the skyline
-    if (earthUp) body(v.earth, true, '#6cb0ee', 12, 'Earth');
-    if (sunUp) body(v.sun, true, '#f5c64f', 7, 'Sun');
-    var d = 'M0 ' + BOT;
-    for (i = -180; i <= 180; i += 2) d += 'L' + ((i + 180) / 360 * W).toFixed(1) + ' ' + Y(skyline(site, i)).toFixed(1);
-    svg.appendChild(el('path', { d: d + 'L' + W + ' ' + BOT + 'Z', fill: '#4a4e5c', stroke: '#b9bdc9', 'stroke-width': 1.2 }));
-    if (!earthUp) body(v.earth, false, '#6cb0ee', 12, 'Earth');
-    if (!sunUp) body(v.sun, false, '#f5c64f', 7, 'Sun');
+    var v = vis(site), sunUp = v.sun[k], earthUp = v.earth[k];
+    if (earthUp) body(s.earthAz[k], s.earthAlt[k], true, '#5AA9FF', 12, 'Earth');
+    if (sunUp) body(s.sunAz[k], s.sunAlt[k], true, '#F5A524', 7, 'Sun');
+    var d = 'M0 ' + BOT;                                   // ground drawn after, so it hides whatever is behind the skyline
+    for (i = -180; i <= 180; i += 0.5) d += 'L' + ((i + 180) / 360 * W).toFixed(1) + ' ' + Y(skyline(site, i)).toFixed(1);
+    svg.appendChild(el('path', { d: d + 'L' + W + ' ' + BOT + 'Z', fill: '#4a4e5c', stroke: '#b9bdc9', 'stroke-width': 1 }));
+    if (!earthUp) body(s.earthAz[k], s.earthAlt[k], false, '#5AA9FF', 12, 'Earth');
+    if (!sunUp) body(s.sunAz[k], s.sunAlt[k], false, '#F5A524', 7, 'Sun');
     [['South', 0], ['West', 200], ['North', 400], ['East', 600], ['South', 800]].forEach(function (c) {
       svg.appendChild(el('text', { x: c[1], y: BOT - 7, fill: '#d6d9e3', 'font-size': 12,
         'text-anchor': c[1] === 0 ? 'start' : c[1] === 800 ? 'end' : 'middle', dx: c[1] === 0 ? 8 : c[1] === 800 ? -8 : 0 }, c[0]));
     });
+    var t = terrainOf(site);
     $('skyCap').textContent = 'The view from the surface, all the way around the lander. ' +
-      (e.terrain ? 'The skyline is real terrain (' + HZ_SRC + ').' : 'No terrain data for this spot, so the horizon is a smooth sphere.') +
+      (t === 'dem' ? 'The skyline is the analysed terrain horizon.' : t === 'coarse' ? 'The skyline is coarse terrain from a 720 m grid, good for mountains only.' : 'No terrain data here, so the horizon is a smooth sphere.') +
       ' Faint lines show where the Sun and Earth travel during the stay.';
   }
-  function renderStrips(e) {
+  function runs(arr, a, b, both) {
+    var out = [], start = -1;
+    for (var i = a; i <= b; i++) {
+      var on = both ? arr[i] && both[i] : arr[i];
+      if (on && start < 0) start = i;
+      if ((!on || i === b) && start >= 0) { out.push([start, on ? i : i - 1]); start = -1; }
+    }
+    return out;
+  }
+  function renderStrips(site) {
     var svg = $('strips'); clear(svg);
-    var m = M(), k = 800 / m;
-    [[e.sunUp, '#f5c64f', 2], [e.earthUp, '#6cb0ee', 27]].forEach(function (row) {
-      svg.appendChild(el('rect', { x: 0, y: row[2], width: 800, height: 20, fill: '#1f2a4d' }));
-      runs(row[0], m).forEach(function (r) {
-        svg.appendChild(el('rect', { x: r[0] * k, y: row[2], width: Math.max(1, (r[1] - r[0]) * k), height: 20, fill: row[1] }));
+    var v = vis(site), p = planK(), span = spanK(), k = 800 / span;
+    [[v.sun, null, '#F5A524', 2], [v.earth, null, '#5AA9FF', 20], [v.sun, v.earth, '#3DD6B0', 38]].forEach(function (row) {
+      svg.appendChild(el('rect', { x: 0, y: row[3], width: 800, height: row[1] ? 20 : 15, fill: '#1f2a4d' }));
+      runs(row[0], p, p + span, row[1]).forEach(function (r) {
+        svg.appendChild(el('rect', { x: (r[0] - p) * k, y: row[3], width: Math.max(1, (r[1] - r[0]) * k), height: row[1] ? 20 : 15, fill: row[2] }));
       });
     });
-    svg.appendChild(el('line', { x1: state.hour * k, x2: state.hour * k, y1: 0, y2: 50, stroke: '#fff', 'stroke-width': 2, 'vector-effect': 'non-scaling-stroke' }));
+    var x0 = (landK() - p) * k, x1 = Math.min(800, (landK() + M() - p) * k);
+    svg.appendChild(el('rect', { x: x0, y: 0.5, width: Math.max(1, x1 - x0), height: 59, fill: 'none', stroke: '#fff', 'stroke-width': 1.5, 'vector-effect': 'non-scaling-stroke' }));
+    if (state.slip) svg.appendChild(el('line', { x1: 0.5, x2: 0.5, y1: 0, y2: 62, stroke: '#fff', 'stroke-width': 1.5, 'stroke-dasharray': '4 3', 'vector-effect': 'non-scaling-stroke' }));
+    svg.appendChild(el('line', { x1: state.cur * k, x2: state.cur * k, y1: 0, y2: 62, stroke: '#fff', 'stroke-width': 2, 'vector-effect': 'non-scaling-stroke' }));
     var sc = $('tlScale'); clear(sc);
-    [0, 0.25, 0.5, 0.75, 1].forEach(function (f) {
-      sc.appendChild(html('span', '', f === 0 ? 'Landing ' + shortDate(t0()) : f === 1 ? 'Take-off ' + shortDate(t0() + m * H) : '+' + dur(m * f)));
-    });
+    [0, 0.25, 0.5, 0.75, 1].forEach(function (f) { sc.appendChild(html('span', '', (f === 0 && state.slip ? 'Planned ' : '') + dayText(p + Math.round(span * f)))); });
   }
-  function renderSiteTech(e, v, now) {
+  function renderSiteTech(site, st, k) {
     $('siteTech').hidden = !state.tech;
     if (!state.tech) return;
-    var s = v.state, site = e.site, m = M(), hz = HZ[site.id];
-    rows($('techTable'), [
-      ['Time', fmtTime(now)], ['Site', coord(site.lat, site.lon)],
-      ['Sun elevation', deg(v.sun.el)], ['Sun azimuth', v.sun.az.toFixed(1) + '°'],
-      ['Skyline toward the Sun', deg(skyline(site, v.sun.az))],
-      ['Earth elevation', deg(v.earth.el)], ['Earth azimuth', v.earth.az.toFixed(1) + '°'],
-      ['Skyline toward Earth', deg(skyline(site, v.earth.az))],
-      ['Ground height', hz ? hz.ground.toLocaleString('en-US') + ' m' : 'No terrain data'],
-      ['Sun overhead at', coord(s.subSun.lat, s.subSun.lon)], ['Earth overhead at', coord(s.subEarth.lat, s.subEarth.lon)],
-      ['Earth distance', Math.round(s.dist).toLocaleString('en-US') + ' km'],
-      ['Score', e.score + ' of 100' + (e.rank ? ' (pick ' + e.rank + ')' : ' (not recommended)')],
-      ['Sun and Earth from landing', e.window ? (e.whole ? 'More than ' + dur(L()) : dur(e.window)) : 'None']
-    ]);
+    var s = series(site), v = vis(site), src = site.src, t = terrainOf(site);
+    var data = [
+      ['Time', fmtTime(k)], ['Site', coord(site.lat, site.lon)],
+      ['Ground height', src ? src.ground_elev_m.toLocaleString('en-US') + ' m' : site.ground != null ? Math.round(site.ground).toLocaleString('en-US') + ' m' : 'Not known'],
+      ['Sun elevation', deg(s.sunAlt[k])], ['Sun azimuth', s.sunAz[k].toFixed(1) + '°'],
+      ['Skyline toward the Sun', deg(v.sunSky[k])], ['Sun disc showing', Math.round(v.frac[k] * 100) + '%'],
+      ['Earth elevation', deg(s.earthAlt[k])], ['Earth azimuth', s.earthAz[k].toFixed(1) + '°'],
+      ['Skyline toward Earth', deg(v.earthSky[k])], ['Earth above the skyline by', deg(s.earthAlt[k] - v.earthSky[k])],
+      ['Sun and Earth diameters', D.bodies.sun.diam_deg[k].toFixed(3) + '°, ' + D.bodies.earth.diam_deg[k].toFixed(3) + '°'],
+      ['Mast height', set.mast + ' m'], ['Terrain', TERRAIN_TEXT[t]]
+    ];
+    if (src) {
+      data.push(['Coordinate source', src.coord_source.ref]);
+      data.push(['Elevation files', src.dem.map(function (d) { return d.file; }).join(', ') || 'None']);
+    }
+    rows($('techTable'), data);
+    $('siteNote').textContent = (src && src.coord_source.note ? src.coord_source.note + ' ' : '') +
+      (src ? '' : 'This point is not in the data file. Its Sun and Earth angles are derived here from the first analysed site\'s angles' + (t === 'coarse' ? ', and its skyline from a 720 m grid of the LOLA 75° S elevation model.' : ', and it has no terrain.') + ' ') +
+      'The Sun counts as up when at least ' + Math.round(set.sun * 100) + '% of its disc clears the skyline, Earth when its centre is more than ' + set.earth + '° above it.';
     var svg = $('elChart'); clear(svg);
-    var Lx = 38, Rt = 470, T = 10, Bt = 195, i;
-    var lo = -2, hi = 2;
-    for (i = 0; i <= m; i++) { lo = Math.min(lo, e.sunEl[i], e.earthEl[i]); hi = Math.max(hi, e.sunEl[i], e.earthEl[i], e.sunSky[i]); }
+    var a0 = landK(), a1 = Math.min(N - 1, a0 + M()), m = Math.max(1, a1 - a0), Lx = 38, Rt = 470, T = 10, Bt = 195, i;
+    var lo = -1, hi = 1;
+    for (i = a0; i <= a1; i++) { lo = Math.min(lo, s.sunAlt[i], s.earthAlt[i], v.sunSky[i]); hi = Math.max(hi, s.sunAlt[i], s.earthAlt[i], v.sunSky[i], v.earthSky[i]); }
     var pad = (hi - lo) * 0.06; lo -= pad; hi += pad;
-    var X = function (h) { return Lx + h / m * (Rt - Lx); }, Y = function (a) { return T + (hi - a) / (hi - lo) * (Bt - T); };
+    var X = function (j) { return Lx + (j - a0) / m * (Rt - Lx); }, Y = function (a) { return T + (hi - a) / (hi - lo) * (Bt - T); };
     var step = (hi - lo) > 80 ? 30 : (hi - lo) > 30 ? 10 : (hi - lo) > 10 ? 5 : 1;
     for (var g = Math.ceil(lo / step) * step; g <= hi; g += step) {
       svg.appendChild(el('line', { x1: Lx, x2: Rt, y1: Y(g), y2: Y(g), stroke: g === 0 ? '#b9bdc9' : '#2a3460', 'stroke-width': 1 }));
@@ -302,140 +457,157 @@
     svg.appendChild(el('text', { x: Rt, y: Bt + 16, fill: '#a3acc8', 'font-size': 11, 'text-anchor': 'end' }, 'Take-off'));
     function line(arr, color, dash) {
       var pts = '';
-      for (var j = 0; j <= m; j++) pts += X(j).toFixed(1) + ',' + Y(arr[j]).toFixed(1) + ' ';
-      var a = { points: pts, fill: 'none', stroke: color, 'stroke-width': dash ? 1.2 : 2 };
+      for (var j = a0; j <= a1; j++) pts += X(j).toFixed(1) + ',' + Y(arr[j]).toFixed(1) + ' ';
+      var a = { points: pts, fill: 'none', stroke: color, 'stroke-width': dash ? 1.1 : 2 };
       if (dash) a['stroke-dasharray'] = '4 3';
       svg.appendChild(el('polyline', a));
     }
-    if (e.terrain) line(e.sunSky, '#f5c64f', true);
-    line(e.sunEl, '#f5c64f'); line(e.earthEl, '#6cb0ee');
-    svg.appendChild(el('text', { x: Rt + 6, y: Y(e.sunEl[m]) + 4, fill: '#f5c64f', 'font-size': 12, 'font-weight': 600 }, 'Sun'));
-    svg.appendChild(el('text', { x: Rt + 6, y: Y(e.earthEl[m]) + 4, fill: '#6cb0ee', 'font-size': 12, 'font-weight': 600 }, 'Earth'));
-    svg.appendChild(el('line', { x1: X(state.hour), x2: X(state.hour), y1: T, y2: Bt, stroke: '#fff', 'stroke-width': 1 }));
+    line(v.sunSky, '#F5A524', true); line(v.earthSky, '#5AA9FF', true);
+    line(s.sunAlt, '#F5A524'); line(s.earthAlt, '#5AA9FF');
+    svg.appendChild(el('text', { x: Rt + 6, y: Y(s.sunAlt[a1]) + 4, fill: '#F5A524', 'font-size': 12, 'font-weight': 600 }, 'Sun'));
+    svg.appendChild(el('text', { x: Rt + 6, y: Y(s.earthAlt[a1]) + 4, fill: '#5AA9FF', 'font-size': 12, 'font-weight': 600 }, 'Earth'));
+    if (k >= a0 && k <= a1) svg.appendChild(el('line', { x1: X(k), x2: X(k), y1: T, y2: Bt, stroke: '#fff', 'stroke-width': 1 }));
   }
+  function flip(arr, k) { for (var i = k + 1; i < N; i++) if (arr[i] !== arr[k]) return i - k - 0.5; return null; }
   function renderSite() {
     var open = !!state.site;
-    $('sitePanel').hidden = !open; $('stage').classList.toggle('insite', open); $('backHint').hidden = !open;
+    $('sitePanel').hidden = !open; $('stage').classList.toggle('insite', open);
     if (!open) return;
-    var site = state.site, e = evaluate(site), now = t0() + state.hour * H, h = state.hour;
-    var v = Ephem.at(cache.states[h], site.lat, site.lon);
+    var site = state.site, k0 = landK(), m = M(), st = status(site, k0, m), k = curK(), v = vis(site);
     $('siteName').textContent = site.name;
     $('siteMeta').textContent = (site.note ? site.note + ', ' : '') + coord(site.lat, site.lon);
     var badge = $('badge');
-    badge.className = 'badge' + (e.ok ? '' : ' no');
-    badge.textContent = e.ok ? 'Pick ' + e.rank + ' of ' + ranked.ok.length + ' for this mission' : 'Not recommended for this mission';
-    var ds = nextFlip(e.sunUp, h), de = nextFlip(e.earthUp, h), s, t;
-    if (e.sunUp[h]) s = ds == null ? 'The Sun is up and stays up well past take-off.' : 'The Sun is up. It sets in ' + dur(ds) + '.';
-    else s = ds == null ? 'The Sun is down and does not rise during the stay.' : 'The Sun is down. It rises in ' + dur(ds) + '.';
-    if (e.earthUp[h]) t = de == null ? 'Earth is in view and stays in view.' : 'Earth is in view. It sets in ' + dur(de) + '.';
-    else t = de == null ? 'Earth does not come into view here. Talking to Earth needs a relay satellite.' : 'Earth is out of view. It rises in ' + dur(de) + '.';
+    badge.className = 'badge' + (st.ok ? '' : ' no');
+    badge.textContent = (st.ok ? 'Available' : 'Not available') + ' for landing on ' + dayText(k0, true);
+    var line = '';
+    if (state.slip) {
+      var was = status(site, planK(), m);
+      line = 'On the planned date, ' + dayText(planK()) + ', this site ' + (was.ok ? 'worked' : 'did not work') + '. After a ' + state.slip + '-day slip it ' +
+        (st.ok ? (was.ok ? 'still works.' : 'works.') : (was.ok ? 'no longer works: ' : 'still does not: ') + st.why.replace(/^The /, 'the ') + '.');
+    } else if (!st.ok) line = st.why + '.';
+    if (st.cut) line += ' The data ends on ' + dayText(N - 1, true) + ', so only ' + hrs(st.total) + ' of the stay are covered.';
+    $('slipLine').textContent = line;
+    renderOptions(site, st);
+    var ds = flip(v.sun, k), de = flip(v.earth, k), a, b;
+    if (v.sun[k]) a = ds == null ? 'The Sun is up for the rest of the data.' : 'The Sun is up. It sets in ' + dur(ds) + '.';
+    else a = ds == null ? 'The Sun is down for the rest of the data.' : 'The Sun is down. It rises in ' + dur(ds) + '.';
+    if (v.earth[k]) b = de == null ? 'Earth is in view and stays in view.' : 'Earth is in view. It sets in ' + dur(de) + '.';
+    else b = de == null ? 'Earth does not come into view here. Talking to Earth needs a relay satellite.' : 'Earth is out of view. It rises in ' + dur(de) + '.';
     var box = $('verdict'); clear(box);
-    box.appendChild(html('p', 's' + (e.sunUp[h] ? '' : ' off'), s)); box.appendChild(html('p', 'e' + (e.earthUp[h] ? '' : ' off'), t));
-    var st = $('stats'); clear(st);
-    [['Stay with both Sun and Earth', e.score + '%'], ['Stay in sunlight', e.sunPct + '%'], ['Stay with Earth in view', e.earthPct + '%'],
-     ['Spare time after take-off', e.spare < 0 ? 'None' : e.whole ? 'Over 14 d' : dur(e.spare)],
-     ['Skyline', e.terrain ? 'Real terrain' : 'Smooth sphere']].forEach(function (r) {
-      var d = html('div'); d.appendChild(html('span', '', r[0])); d.appendChild(html('b', '', r[1])); st.appendChild(d);
+    box.appendChild(html('p', 's' + (v.sun[k] ? '' : ' off'), a)); box.appendChild(html('p', 'e' + (v.earth[k] ? '' : ' off'), b));
+    var end = Math.min(N - 1, k0 + m), sunH = 0, earthH = 0, dark = 0, run = 0;
+    for (var i = k0; i < k0 + st.total; i++) { sunH += v.sun[i]; earthH += v.earth[i]; run = v.sun[i] ? 0 : run + 1; if (run > dark) dark = run; }
+    var stEl = $('stats'); clear(stEl);
+    [['Stay with both Sun and Earth', hrs(st.both) + ' (' + Math.round(st.share * 100) + '%)'],
+     ['Stay in sunlight', Math.round(100 * sunH / st.total) + '%'], ['Stay with Earth in view', Math.round(100 * earthH / st.total) + '%'],
+     ['Longest dark stretch', dark ? dur(dark) : 'None'], ['Skyline', TERRAIN_TEXT[terrainOf(site)]]].forEach(function (r) {
+      var d = html('div'); d.appendChild(html('span', '', r[0])); d.appendChild(html('b', '', r[1])); stEl.appendChild(d);
     });
-    renderSky(e, v); renderStrips(e);
-    $('clock').textContent = fmtTime(now) + ', mission day ' + (Math.min(state.days, Math.floor(h / 24) + 1));
-    $('scrub').max = M(); $('scrub').value = h;
-    renderSiteTech(e, v, now);
+    renderSky(site, k); renderStrips(site);
+    var rel = k - k0;
+    $('clock').textContent = fmtTime(k) + (rel < 0 ? ', ' + dur(-rel) + ' before landing' : rel > m ? ', ' + dur(rel - m) + ' after take-off' : ', day ' + (Math.floor(rel / SPD) + 1) + ' of the stay');
+    $('scrub').max = spanK(); $('scrub').value = state.cur;
+    renderSiteTech(site, st, k);
   }
 
-  /* ---------- flow ---------- */
+  /* ================= flow ================= */
   function fields() {
-    $('date').value = state.date; $('days').value = state.days;
-    $('takeoff').value = new Date(t0() + state.days * DAY).toISOString().slice(0, 10);
-    $('takeoff').min = new Date(t0() + DAY).toISOString().slice(0, 10);
+    $('date').min = isoDay(0); $('date').max = isoDay(Math.floor((N - 1) / SPD));
+    $('date').value = isoDay(state.plan); $('days').value = state.days;
+    var maxSlip = Math.max(0, Math.floor((N - 1) / SPD) - state.plan);
+    $('slip').max = Math.min(maxSlip, Math.max(56, state.slip)); $('slip').value = state.slip;
+    $('slipOut').textContent = state.slip ? '+' + state.slip + (state.slip === 1 ? ' day' : ' days') : 'None';
+    $('slipOut').className = state.slip ? 'on' : '';
+    var out = $('missionOut'); clear(out);
+    out.appendChild(document.createTextNode('Lands ')); out.appendChild(html('b', '', dayText(landK(), true)));
+    out.appendChild(document.createTextNode(', leaves ')); out.appendChild(html('b', '', dayText(Math.min(N - 1, landK() + M()), true)));
     $('techToggle').checked = state.tech;
     $('sideToggle').setAttribute('aria-pressed', String(state.side));
     $('app').classList.toggle('noside', !state.side);
   }
   function refresh() {
     document.body.classList.toggle('tech', state.tech);
-    if (state.hour > M()) state.hour = 0;
+    state.cur = Math.max(0, Math.min(spanK(), state.cur));
     fields(); save();
-    prepare(); rank(); lightGlobe(); renderList(); renderPins(); renderMoonTech(); renderSite();
+    rank(); lightGlobe(); renderList(); renderPins(); renderMoonTech(); renderSite();
   }
   function tick() { lightGlobe(); renderPins(); renderSite(); }
   function stop() { if (playing) { clearInterval(playing); playing = null; $('play').textContent = 'Play'; } }
   function play() {
     if (playing) { stop(); return; }
-    if (state.hour >= M()) state.hour = 0;
+    var a = landK() - planK(), b = Math.min(spanK(), a + M());
+    if (state.cur < a || state.cur >= b) state.cur = a;
     $('play').textContent = 'Pause';
-    var stepH = Math.max(1, Math.round(M() / 200));
-    playing = setInterval(function () { state.hour = Math.min(M(), state.hour + stepH); tick(); if (state.hour >= M()) stop(); }, 60);
+    var stepK = Math.max(1, Math.round(M() / 200));
+    playing = setInterval(function () { state.cur = Math.min(b, state.cur + stepK); tick(); if (state.cur >= b) stop(); }, 60);
   }
   function select(site) {
     stop();
     if (!state.site) state.home = Globe.view();
-    state.site = site; state.hour = 0;
+    state.site = site; state.cur = landK() - planK();
     refresh();
     Globe.flyTo(site.lon, site.lat, 1.5);
     $('sitePanel').scrollTop = 0;
   }
   function back() {
     if (!state.site) return;
-    stop(); state.site = null; state.hour = 0; refresh();
+    stop(); state.site = null; refresh();
     var h = state.home || { lon: 15, lat: -40, dist: 4.2 };
     Globe.flyTo(h.lon, h.lat, Math.max(h.dist, 3));
   }
-  function setMission(date, days) {
+  function setMission(plan, slip, days) {
     stop();
-    state.date = date; state.days = Math.max(1, Math.min(60, Math.round(days) || 1)); state.hour = 0;
+    var last = Math.floor((N - 1) / SPD);
+    state.plan = Math.max(0, Math.min(last, plan)); state.slip = Math.max(0, Math.min(last - state.plan, slip));
+    state.days = Math.max(1, Math.min(60, Math.round(days) || 1));
+    state.cur = landK() - planK();
     refresh();
   }
-  function shiftDay(n) { setMission(new Date(t0() + n * DAY).toISOString().slice(0, 10), state.days); }
+  function inspect(lat, lon) {
+    lat = Math.max(-90, Math.min(90, lat)); lon = ((lon + 540) % 360) - 180;
+    state.custom = makeSite('custom', { id: 'custom', name: 'Picked spot', note: '', lat: +lat.toFixed(4), lon: +lon.toFixed(4) });
+    $('cLat').value = state.custom.lat; $('cLon').value = state.custom.lon;
+    select(state.custom);
+  }
 
-  $('date').addEventListener('change', function () { if (this.value) setMission(this.value, state.days); else fields(); });
-  $('days').addEventListener('change', function () { setMission(state.date, +this.value); });
-  $('takeoff').addEventListener('change', function () {
-    if (!this.value) { fields(); return; }
-    setMission(state.date, (Date.parse(this.value + 'T00:00:00Z') - t0()) / DAY);
+  $('date').addEventListener('change', function () {
+    var d = Math.round((Date.parse(this.value + 'T00:00:00Z') - T0) / 86400000);
+    if (this.value && isFinite(d)) setMission(d, state.slip, state.days); else fields();
   });
-  $('prevDay').addEventListener('click', function () { shiftDay(-1); });
-  $('nextDay').addEventListener('click', function () { shiftDay(1); });
+  $('slip').addEventListener('input', function () { setMission(state.plan, +this.value, state.days); });
+  $('days').addEventListener('change', function () { setMission(state.plan, state.slip, +this.value); });
   $('techToggle').addEventListener('change', function () { state.tech = this.checked; refresh(); });
   $('sideToggle').addEventListener('click', function () { state.side = !state.side; refresh(); });
-  $('back').addEventListener('click', back);
-  $('viewAll').addEventListener('click', function () { Globe.flyTo(15, -20, 4.2); });
-  $('viewPole').addEventListener('click', function () { Globe.flyTo(0, -80, 2.4); });
-  $('zoomIn').addEventListener('click', function () { Globe.zoom(0.8); });
-  $('zoomOut').addEventListener('click', function () { Globe.zoom(1.25); });
+  $('pastBox').addEventListener('toggle', refresh);
   $('play').addEventListener('click', play);
-  $('scrub').addEventListener('input', function () { stop(); state.hour = +this.value; tick(); });
+  $('scrub').addEventListener('input', function () { stop(); state.cur = +this.value; tick(); });
+  ['setMast', 'setSun', 'setEarth', 'setShare'].forEach(function (id) {
+    $(id).addEventListener('change', function () {
+      set.mast = +$('setMast').value;
+      set.sun = Math.max(0.01, Math.min(1, (+$('setSun').value || 50) / 100));
+      set.earth = Math.max(0, +$('setEarth').value || 0);
+      set.share = Math.max(0, Math.min(1, (+$('setShare').value || 0) / 100));
+      fillRules(); refresh();
+    });
+  });
+  $('coordForm').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    var lat = parseFloat($('cLat').value), lon = parseFloat($('cLon').value);
+    if (isFinite(lat) && isFinite(lon)) inspect(lat, lon);
+  });
   document.addEventListener('keydown', function (ev) {
     if (ev.key === 'Escape') { back(); return; }
-    if (/^(INPUT|BUTTON|SELECT|TEXTAREA)$/.test(ev.target.tagName)) return;
+    if (/^(INPUT|BUTTON|SELECT|TEXTAREA|SUMMARY)$/.test(ev.target.tagName)) return;
     if (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') {
       var sign = ev.key === 'ArrowLeft' ? -1 : 1;
-      if (state.site) { stop(); state.hour = Math.max(0, Math.min(M(), state.hour + sign * 3)); tick(); } else shiftDay(sign);
+      if (state.site) { stop(); state.cur = Math.max(0, Math.min(spanK(), state.cur + sign * 3)); tick(); } else setMission(state.plan, state.slip + sign, state.days);
       ev.preventDefault();
     } else if (ev.key === ' ' && state.site) { play(); ev.preventDefault(); }
   });
-  $('hzBtn').addEventListener('click', function () {
-    var msg = $('hzMsg'), out = $('hzOut'), site = state.site;
-    if (location.protocol === 'file:') { msg.textContent = 'This check needs the local server. Run "python server.py" in this folder, then open http://localhost:8000.'; return; }
-    var now = t0() + state.hour * H;
-    msg.textContent = 'Asking JPL Horizons…'; out.hidden = true;
-    fetch('/horizons?lat=' + site.lat + '&lon=' + site.lon + '&start=' + encodeURIComponent(new Date(now).toISOString().slice(0, 16)))
-      .then(function (r) { return r.json(); })
-      .then(function (j) {
-        if (j.error) { msg.textContent = 'Horizons could not be reached: ' + j.error; return; }
-        var v = Ephem.look(site.lat, site.lon, now);
-        msg.textContent = 'Horizons rows list azimuth then elevation, hourly from the selected time.';
-        out.textContent = 'This tool at ' + fmtTime(now) + '\n  Sun   az ' + v.sun.az.toFixed(3) + '  el ' + v.sun.el.toFixed(3) +
-          '\n  Earth az ' + v.earth.az.toFixed(3) + '  el ' + v.earth.el.toFixed(3) + '\n\nJPL Horizons, Sun\n' + j.sun + '\n\nJPL Horizons, Earth\n' + j.earth;
-        out.hidden = false;
-      })
-      .catch(function () { msg.textContent = 'The local server did not answer. Start it with "python server.py".'; });
-  });
 
-  /* ---------- surface map ---------- */
+  /* ================= surface map and coarse terrain ================= */
   function surface(text) { $('stSurface').textContent = 'Surface: ' + text; }
-  // NASA Moon Trek tiles of the LRO wide-angle camera mosaic, stitched into one map.
-  function liveTiles(z) {
+  function liveTiles(z) {                                   // NASA Moon Trek tiles of the LRO wide-angle mosaic
     var cols = Math.pow(2, z + 1), rowsN = Math.pow(2, z), left = cols * rowsN, dead = false;
     var c = document.createElement('canvas'); c.width = cols * 256; c.height = rowsN * 256;
     var ctx = c.getContext('2d');
@@ -451,32 +623,42 @@
     })(r, q);
   }
   function loadSurface() {
-    surface('generated (no NASA map loaded)');
+    surface('generated, no NASA map loaded');
     if (typeof MOON_TEXTURE === 'string' && MOON_TEXTURE) {
       var img = new Image();
-      img.onload = function () { if (Globe.setTexture(img)) surface((typeof MOON_TEXTURE_SOURCE === 'string' && MOON_TEXTURE_SOURCE) || 'NASA map'); else liveTiles(2); };
+      img.onload = function () { if (Globe.setTexture(img)) surface(((typeof MOON_TEXTURE_SOURCE === 'string' && MOON_TEXTURE_SOURCE) || 'NASA map') + ', ' + img.naturalWidth + ' px'); else liveTiles(2); };
       img.onerror = function () { liveTiles(2); };
       img.src = MOON_TEXTURE;
     } else liveTiles(2);
   }
+  function loadTerrain() {
+    var t = window.TERRAIN_LOWRES;
+    if (!t || !window.DecompressionStream) return;
+    var bin = atob(t.deflate_b64), bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate'))).arrayBuffer().then(function (buf) {
+      TER = Terrain.fromDeltas(t.n, t.px_m, t.quant_m, new Uint8Array(buf));
+      PAST.concat(state.custom ? [state.custom] : []).forEach(function (s) { s.hz = null; s.vis = null; });
+      refresh();
+    }).catch(function () {});
+  }
 
-  /* ---------- start ---------- */
-  var nTerrain = Object.keys(HZ).length;
-  $('stHorizon').textContent = nTerrain ? 'Skyline: ' + HZ_SRC + ' at ' + nTerrain + ' sites' : 'Skyline: smooth sphere (run build_data.py for terrain)';
+  /* ================= start ================= */
+  $('fakeBanner').hidden = !D.fake;
+  $('stData').textContent = 'Data: ' + (D.fake ? 'FAKE fixture' : D.generator);
   $('stCursor').textContent = 'Cursor off the Moon';
+  fillRules();
   var ok = Globe.init($('globe'), {
     draw: placePins,
     hover: function (pt) { $('stCursor').textContent = pt ? 'Cursor ' + coord(pt.lat, pt.lon) : 'Cursor off the Moon'; },
     click: function () { if (state.site) back(); },
-    pick: function (pt) {
-      if (state.site) return;
-      state.custom = { id: 'custom', name: 'Your spot', note: '', lat: +pt.lat.toFixed(2), lon: +pt.lon.toFixed(2) };
-      select(state.custom);
-    }
+    pick: function (pt) { if (!state.site) inspect(pt.lat, pt.lon); }
   });
   $('noGl').hidden = ok;
   if (ok) loadSurface();
+  loadTerrain();
   if (window.ResizeObserver) new ResizeObserver(function () { Globe.resize(); }).observe($('globeWrap'));
   window.addEventListener('resize', function () { Globe.resize(); });
   refresh();
+  window.NAV_DEBUG = { status: status, sites: ANALYSED, series: series, state: state, set: set };
 })();

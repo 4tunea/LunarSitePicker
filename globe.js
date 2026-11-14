@@ -37,18 +37,18 @@ var Globe = (function () {
     ' float lon=atan(n.y,n.x),lat=asin(clamp(n.z,-1.,1.));',
     ' float diff=max(dot(n,uSun),0.);vec3 sunT=normalize(uSun-n*dot(uSun,n)+1e-5);',
     ' float alb,rel=0.;',
-    ' if(uHasTex>.5){vec3 t=texture(uTex,vec2(lon/6.2831853+.5,.5-lat/3.14159265)).rgb;alb=dot(t,vec3(.333))*1.6+.03;}',
+    ' if(uHasTex>.5){vec3 t=texture(uTex,vec2(lon/6.2831853+.5,.5-lat/3.14159265)).rgb;alb=dot(t,vec3(.333))*1.05;}',
     ' else{alb=.6+.3*(fbm(n*3.)-.5)+.14*(fbm(n*13.)-.5);float mare=0.,w=.07*(fbm(n*6.)-.5);',
     '  for(int i=0;i<14;i++)mare=max(mare,smoothstep(uMaria[i].w-.02,uMaria[i].w+.03,dot(n,uMaria[i].xyz)+w));',
     '  alb*=mix(1.,.52,mare);vec2 c1=craters(n,7.,sunT),c2=craters(n,19.,sunT);',
     '  alb+=(c1.x+.6*c2.x)*mix(1.,.5,mare);rel=c1.y+.6*c2.y;}',
     ' float lit=pow(diff,.8)*clamp(1.+.9*rel*(1.-diff),.25,1.8);',
-    ' vec3 col=alb*vec3(1.,.98,.94)*lit+alb*vec3(.06,.075,.12)*(1.+1.2*max(dot(n,uEarth),0.));',
+    ' vec3 col=alb*vec3(1.,.98,.94)*lit+alb*vec3(.035,.045,.075)*(1.+1.2*max(dot(n,uEarth),0.));',
     ' if(uGrid>.5){float a=degrees(lon)/30.,e=degrees(lat)/30.;',
     '  float g=min(abs(fract(a-.5)-.5)/fwidth(a),abs(fract(e-.5)-.5)/fwidth(e));',
     '  col=mix(col,vec3(.5,.68,.95),(1.-min(g,1.))*.4);}',
     ' col=mix(bg,col,smoothstep(0.,.004*dot(uCam,uCam),h));',
-    ' o=vec4(pow(col,vec3(.9)),1.);}'
+    ' o=vec4(col,1.);}'
   ].join('\n');
 
   function dir(lat, lon) { return [Math.cos(lat * RAD) * Math.cos(lon * RAD), Math.cos(lat * RAD) * Math.sin(lon * RAD), Math.sin(lat * RAD)]; }

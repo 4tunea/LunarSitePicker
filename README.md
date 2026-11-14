@@ -1,53 +1,59 @@
 # Lunar landing site navigator
 
-A planning tool: set a landing date and a length of stay, and the 3D Moon shows
-the landing sites that suit that mission as ranked pins. Click a pin to inspect
-the site: the view from the surface with the real skyline, and the Sun and Earth
-moving through the stay.
+A planning tool for the "launch slipped, can we still land?" question. Set the planned
+landing date and the stay, drag the launch-slip slider, and watch which sites still work.
+Open a site that stops working and the tool offers two ways out: switch to a site that
+works on the new date, or land later at the same site.
 
 ## Run it
 
-1. Double-click `index.html`. It works offline.
-2. For real NASA imagery and terrain, run this once in the folder (Python 3, internet):
+Double-click `index.html`. No server, no build step, works offline.
 
-       python build_data.py            (116 MB download, 120 m terrain)
-       python build_data.py --small    (29 MB download, 240 m terrain)
+## Where the numbers come from
 
-   It writes `moon-texture.js` (the Moon's surface photo map) and `horizons.js`
-   (the terrain skyline for each south-pole site), then reload the page.
-   Downloads are kept in `data/` and reused.
+The page reads one data file in the format of `docs/data-contract.md`:
 
-Without step 2 the tool tries NASA's live Moon Trek image tiles for the surface
-and uses a smooth-sphere horizon. The status bar at the bottom always says which
-surface map and which skyline are in use.
+- `web/data/navigator-data.js` if precompute has written it, otherwise
+- `web/data/navigator-data.fake.js`, a FAKE fixture of the same shape. While it is in use
+  an orange "FAKE DATA" banner is shown.
+
+Visibility is derived in the browser (contract section 7): share of the Sun's disc above
+the skyline, Earth's centre above the skyline, for the chosen mast height. The rules are
+editable under "Technical data".
+
+A site counts as available for a landing date when the Sun and Earth are both visible at
+landing and for at least half of the stay (also editable).
 
 ## Using it
 
-- Top bar: landing date, stay in days, take-off date. Stay and take-off are linked.
-- Left list: recommended sites, best first. "Site list" hides or shows it.
-- Moon: drag to turn, scroll to zoom, click a pin to inspect, double-click the
-  surface to test your own spot.
-- Inside a site: click the Moon (or press Esc) to go back. Space plays the stay,
-  arrow keys step through it. On the whole Moon, arrow keys move the landing date.
-- "Technical data" adds whole-Moon data and the score table on the main view,
-  and elevations, skyline heights and a chart inside a site.
+- Top bar: planned landing, launch slip (drag, or arrow keys), stay in days.
+- Left list: the analysed sites, best first; "Past landings" opens a reference list.
+- Moon: drag to turn, scroll to zoom, click a pin to open a site, click the Moon or press
+  Esc to close it, double-click the surface to inspect any spot.
+- Inside a site: Space plays the stay, arrow keys step through time.
+- "Technical data": Moon data, availability rules, a coordinate box to inspect any
+  latitude and longitude, the full site table, and per-site angles and charts.
 
-## How sites are ranked
+## Three kinds of site
 
-Score = share of the stay with both sunlight and Earth in view (0 to 100).
-A site is recommended when both are there at landing and the score is at least 75.
-Ties go to the site that keeps both longest after take-off (schedule margin).
-The rule is `evaluate()` in `app.js`.
+| Kind | Sun and Earth angles | Skyline |
+|---|---|---|
+| Analysed (in the data file) | from the file | from the file |
+| Past landings and picked spots south of 80° S | derived in the browser from the first analysed site's angles | coarse 720 m grid (`web/data/terrain-lowres.js`) |
+| Everything else | derived the same way | smooth sphere |
 
-## Data and limits
+Derived angles were checked against the file for the other four sites: they agree to 0.01°.
 
-- Sun and Earth positions: `ephem.js`, a truncated Meeus lunar theory. Checked
-  against Meeus's worked examples (about 0.03 degrees) and the Apollo 11 landing.
-- Skyline: NASA LOLA elevation model LDEM_75S (imbrium.mit.edu), seen from 2 m
-  above the ground, out to 250 km, every 2 degrees of azimuth. It resolves
-  mountains and crater rims, not boulders. Only sites south of 79 S get terrain;
-  other sites and custom spots use a smooth sphere.
-- Surface map: NASA SVS CGI Moon Kit colour map (2k), or Moon Trek LRO tiles.
-- Slopes, landing hazards and temperature are not part of the score.
-- Site coordinates are approximate.
-- `server.py` is optional and only needed for the "Check against JPL Horizons" button.
+## Files
+
+- `index.html`, `app.js`, `style.css`, `globe.js`: the interface.
+- `web/terrain.js`: terrain-horizon code (browser and tools). Checks: `node web/tools/test_terrain.js`
+  (flat sphere against the analytic dip, synthetic walls, azimuth direction).
+- `web/data/past-landings.js`: 27 past soft landings, approximate coordinates.
+- `web/tools/make_fake_data.js`: writes the fake fixture (needs `data/LDEM_75S_120M.IMG`).
+- `web/tools/build_terrain.py`: writes the coarse terrain grid (numpy).
+- `web/tools/build_texture.py`: embeds a sharper NASA Moon map (`--8k` for the largest).
+- `moon-texture.js`: the embedded Moon map the globe uses.
+
+No longer loaded by the page: `sites.js`, `horizons.js`, `build_data.py`, `server.py`.
+`ephem.js` is only used by the fake-data generator.
