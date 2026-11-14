@@ -3,69 +3,146 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Lunar landing site navigator</title>
+<title>Lunar Site Navigator</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header class="bar">
-  <h1>Lunar landing site navigator</h1>
+  <div class="brand"><span class="logo" aria-hidden="true"></span><h1>Lunar Site Navigator</h1></div>
   <div class="mission" role="group" aria-label="Mission">
     <div class="field">
       <label for="date">Planned landing (UTC)</label>
-      <div class="row"><input type="date" id="date"></div>
+      <input type="date" id="date">
     </div>
     <div class="field slipfield">
       <label for="slip">Launch slip</label>
       <div class="row"><input type="range" id="slip" min="0" max="56" step="1" value="0"><output id="slipOut" for="slip"></output></div>
     </div>
     <div class="field">
-      <label for="days">Stay on the surface</label>
+      <label for="days">Stay</label>
       <div class="row"><input type="number" id="days" min="1" max="60" step="1" inputmode="numeric"><span class="unit">days</span></div>
     </div>
     <p class="readout" id="missionOut" aria-live="polite"></p>
   </div>
   <div class="tools">
-    <button class="btn" id="sideToggle" type="button" aria-pressed="true">Site list</button>
-    <label class="switch"><input type="checkbox" id="techToggle"><span class="track" aria-hidden="true"></span>Technical data</label>
+    <button class="btn" id="setupBtn" type="button"><span class="ico wand" aria-hidden="true"></span>Setup</button>
+    <button class="btn" id="compareBtn" type="button" aria-pressed="false"><span class="ico cmp" aria-hidden="true"></span>Compare</button>
+    <label class="switch"><input type="checkbox" id="techToggle"><span class="track" aria-hidden="true"></span>Technical</label>
   </div>
 </header>
-<p class="fake" id="fakeBanner" hidden>FAKE DATA. These numbers are placeholders for building the interface. Do not use them for any result.</p>
 
 <div class="app" id="app">
   <aside class="side" id="side" aria-label="Landing sites">
-    <h2>Landing sites</h2>
-    <p class="hint" id="sideSub"></p>
+    <div class="side-head">
+      <h2>Landing sites</h2>
+      <p class="hint" id="sideSub"></p>
+      <div class="chips" id="filters" role="tablist" aria-label="Filter sites">
+        <button type="button" class="chip" data-f="all" role="tab">All</button>
+        <button type="button" class="chip" data-f="pole" role="tab">South pole</button>
+        <button type="button" class="chip" data-f="past" role="tab">Past landings</button>
+        <button type="button" class="chip" data-f="pin" role="tab">My pins</button>
+      </div>
+    </div>
     <ol id="rank" class="rank"></ol>
-    <details id="pastBox">
-      <summary id="pastSum">Past landings, for reference</summary>
-      <p class="hint">Not part of the analysed set. Approximate coordinates, and no terrain except south of 80° S.</p>
-      <ul id="pastList" class="rank"></ul>
-    </details>
+    <form class="addpin" id="coordForm">
+      <h3>Add a pin</h3>
+      <div class="pinrow">
+        <label>Lat °<input type="number" id="cLat" min="-90" max="90" step="any" value="-88.5" required></label>
+        <label>Lon °E<input type="number" id="cLon" min="-180" max="360" step="any" value="45" required></label>
+        <button class="btn small" type="submit">Add</button>
+      </div>
+      <p class="hint">Or double-click the Moon. Pins stay until the page is reloaded.</p>
+    </form>
   </aside>
 
   <main class="stage" id="stage">
+    <section class="sitepanel" id="sitePanel" hidden aria-label="Site details">
+      <div class="sp-head">
+        <button class="btn small ghost" id="backBtn" type="button">← Moon</button>
+        <label class="ck earthck"><input type="checkbox" id="showEarth" checked>Show Earth</label>
+        <div class="seg" role="group" aria-label="Horizon view">
+          <button type="button" id="view3d" aria-pressed="true">3D horizon</button>
+          <button type="button" id="view2d" aria-pressed="false">2D horizon</button>
+        </div>
+      </div>
+      <div class="sp-body" id="spBody">
+        <div class="sp-main">
+          <div class="sp-title">
+            <h2 id="siteName"></h2>
+            <p id="siteMeta" class="hint"></p>
+            <p id="badge" class="badge"></p>
+          </div>
+          <p id="slipLine" class="slipline"></p>
+          <div class="options" id="options" hidden></div>
+          <div class="verdict" id="verdict" aria-live="polite"></div>
+          <div class="tiles" id="tiles"></div>
+        </div>
+        <div class="sp-viz">
+          <figure class="pano" id="panoBox" hidden>
+            <figcaption><span>Horizon from the site, unrolled 360°</span><span class="legend"><i class="k s"></i>Sun <i class="k e"></i>Earth <i class="k dash"></i>behind terrain</span></figcaption>
+            <svg id="pano" viewBox="0 0 1000 290" role="img" aria-label="Skyline with the Sun and Earth paths"></svg>
+          </figure>
+          <div class="card timeline">
+            <div class="tl-head">
+              <button class="btn small primary" id="play" type="button">Play</button>
+              <span id="clock"></span>
+              <span class="legend"><i class="k s"></i>Sun <i class="k e"></i>Earth <i class="k a"></i>Both</span>
+            </div>
+            <svg id="strips" viewBox="0 0 800 62" preserveAspectRatio="none" aria-hidden="true"></svg>
+            <input type="range" id="scrub" min="0" max="1344" step="1" value="0" aria-label="Time">
+            <div class="tl-scale" id="tlScale"></div>
+          </div>
+          <div class="card calendar">
+            <div class="cal-head"><h3>Landing-date explorer</h3><span class="hint" id="calHint"></span></div>
+            <svg id="cal" viewBox="0 0 800 46" preserveAspectRatio="none" role="img" aria-label="Share of the stay with Sun and Earth for every landing day in the data"></svg>
+            <div class="tl-scale" id="calScale"></div>
+          </div>
+          <div class="card why" id="why"></div>
+        </div>
+        <div class="sitetech" id="siteTech" hidden>
+          <h3>Technical data</h3>
+          <div class="techgrid">
+            <table id="techTable"></table>
+            <figure>
+              <svg id="elChart" viewBox="0 0 520 220" role="img" aria-label="Elevation of Sun and Earth over the stay"></svg>
+              <figcaption>Elevation above the horizontal over the stay, in degrees. Dashed lines: the skyline in the direction of the Sun and of Earth.</figcaption>
+            </figure>
+          </div>
+          <p class="note" id="siteNote"></p>
+          <div id="siteDisplaySlot"></div>
+        </div>
+      </div>
+    </section>
+    <div class="split" id="split" role="separator" aria-orientation="vertical" aria-label="Resize the info panel" tabindex="0" hidden></div>
+
     <div class="globe" id="globeWrap">
       <canvas id="globe" aria-label="3D Moon with landing sites"></canvas>
       <div id="pins"></div>
       <moon-sky id="surface" embedded aria-label="View from the surface at the selected site, with the Sun and Earth"></moon-sky>
-      <button class="btn small surfback" id="surfBack" type="button">← Back to the Moon</button>
-      <div class="surfload" id="surfLoad" role="status" aria-live="polite">
-        <div class="sl-card">
-          <div class="sl-moon" aria-hidden="true"><i></i></div>
-          <p class="sl-kicker">Opening the surface view</p>
-          <h2 id="slName"></h2>
-          <p class="hint" id="slCoord"></p>
-          <div class="sl-bar" aria-hidden="true"><i id="slBar"></i></div>
-          <p class="sl-stage" id="slStage"></p>
-          <p class="sl-err" id="slErr" hidden></p>
-          <button class="btn small" id="slBack" type="button" hidden>← Back to the Moon</button>
-        </div>
+      <div class="zoomctl" id="zoomCtl">
+        <button type="button" class="btn icon" id="zoomIn" aria-label="Zoom in">+</button>
+        <button type="button" class="btn icon" id="zoomOut" aria-label="Zoom out">−</button>
+        <button type="button" class="btn icon" id="zoomPole" aria-label="Look at the south pole" title="South pole">S</button>
+      </div>
+      <div class="loader" id="globeLoad" role="status" aria-live="polite">
+        <div class="spinner" aria-hidden="true"></div>
+        <p class="ld-title">Loading the Moon</p>
+        <p class="ld-stage" id="globeLoadStage">Preparing</p>
+      </div>
+      <div class="loader surfload" id="surfLoad" role="status" aria-live="polite">
+        <div class="spinner" aria-hidden="true"></div>
+        <p class="ld-kicker">Opening the 3D horizon</p>
+        <h2 id="slName"></h2>
+        <p class="hint" id="slCoord"></p>
+        <div class="sl-bar" aria-hidden="true"><i id="slBar"></i></div>
+        <p class="ld-stage" id="slStage"></p>
+        <p class="sl-err" id="slErr" hidden></p>
+        <button class="btn small" id="slBack" type="button" hidden>← Back to the Moon</button>
       </div>
       <p class="nogl" id="noGl" hidden>This browser cannot draw the 3D Moon. Pick a site from the list instead.</p>
-      <section class="moontech" id="moonTech" hidden>
+      <section class="moontech" id="moonTech" hidden aria-label="Technical data">
         <h2>The Moon at landing</h2>
         <table id="moonTable"></table>
-
         <h3>What counts as available</h3>
         <div class="rules">
           <label>Mast height <select id="setMast"></select></label>
@@ -73,70 +150,78 @@
           <label>Earth above the skyline by <span><input type="number" id="setEarth" min="0" max="5" step="0.1"> °</span></label>
           <label>Share of the stay with both <span><input type="number" id="setShare" min="0" max="100" step="5"> %</span></label>
         </div>
-
-        <h3>Inspect coordinates</h3>
-        <form class="rules" id="coordForm">
-          <label>Latitude <span><input type="number" id="cLat" min="-90" max="90" step="0.0001" value="-88.5" required> °</span></label>
-          <label>Longitude, east positive <span><input type="number" id="cLon" min="-180" max="180" step="0.0001" value="45" required> °</span></label>
-          <button class="btn small" type="submit">Inspect this spot</button>
-        </form>
-
-        <h3>All analysed sites</h3>
+        <div id="moonDisplaySlot"></div>
+        <h3>All sites</h3>
         <table id="rankTable" class="ranktable"></table>
         <h3>Data file</h3>
         <table id="dataTable"></table>
       </section>
     </div>
 
-    <section class="sitepanel" id="sitePanel" hidden>
-      <div class="sp-left">
-        <h2 id="siteName"></h2>
-        <p id="siteMeta" class="hint"></p>
-        <p id="badge" class="badge"></p>
-        <p id="slipLine" class="slipline"></p>
-        <div class="options" id="options" hidden></div>
-        <div class="verdict" id="verdict" aria-live="polite"></div>
-        <div class="stats" id="stats"></div>
+    <div class="cmpbar" id="cmpBar" hidden>
+      <span id="cmpCount"></span>
+      <button type="button" class="btn small primary" id="cmpGo">Compare</button>
+      <button type="button" class="btn small ghost" id="cmpCancel">Cancel</button>
+    </div>
+    <section class="compare" id="comparePanel" hidden aria-label="Site comparison">
+      <div class="cmp-head">
+        <div><h2>Site comparison</h2><p class="hint" id="cmpSub"></p></div>
+        <button type="button" class="btn small ghost" id="cmpClose">Close</button>
       </div>
-      <div class="sp-right">
-        <p class="hint surfcap" id="surfCap"></p>
-        <div class="timeline">
-          <div class="tl-head">
-            <button class="btn small" id="play" type="button">Play</button>
-            <span id="clock"></span>
-            <span class="legend"><i class="k s"></i>Sun <i class="k e"></i>Earth <i class="k a"></i>Both</span>
-          </div>
-          <svg id="strips" viewBox="0 0 800 62" preserveAspectRatio="none" aria-hidden="true"></svg>
-          <input type="range" id="scrub" min="0" max="1344" step="1" value="0" aria-label="Time">
-          <div class="tl-scale" id="tlScale"></div>
-        </div>
-      </div>
-      <div class="sitetech" id="siteTech" hidden>
-        <h3>Technical data for this site</h3>
-        <div class="techgrid">
-          <table id="techTable"></table>
-          <figure>
-            <svg id="elChart" viewBox="0 0 520 220" role="img" aria-label="Elevation of Sun and Earth over the stay"></svg>
-            <figcaption>Elevation above the horizontal over the stay, in degrees. Dashed lines are the skyline in the direction of the Sun and of Earth.</figcaption>
-          </figure>
-        </div>
-        <p class="note" id="siteNote"></p>
-      </div>
+      <div class="cmp-win" id="cmpWin"></div>
+      <div class="cmp-scroll"><table class="cmptable" id="cmpTable"></table></div>
     </section>
   </main>
+</div>
+
+<div class="wizard" id="wizard" hidden>
+  <div class="wiz-card" role="dialog" aria-modal="true" aria-labelledby="wizTitle">
+    <div class="wiz-top">
+      <div><h2 id="wizTitle">Set up your scenario</h2><p class="hint" id="wizCount"></p></div>
+      <button type="button" class="btn small ghost" id="wizClose" aria-label="Close setup">✕</button>
+    </div>
+    <nav class="wiz-steps" id="wizSteps" aria-label="Setup steps"></nav>
+    <div class="wiz-body" id="wizBody"></div>
+    <div class="wiz-foot">
+      <button type="button" class="btn small ghost" id="wizSkip">Skip setup</button>
+      <span class="sp"></span>
+      <button type="button" class="btn" id="wizBack">Back</button>
+      <button type="button" class="btn primary" id="wizNext">Next</button>
+    </div>
+  </div>
+</div>
+
+<!-- Display settings: moved by app.js into the technical panel that is showing -->
+<div class="display" id="displayBox" hidden>
+  <h3>Display</h3>
+  <div class="dgrid">
+    <p class="dsub">Moon</p>
+    <label class="ck"><input type="checkbox" data-g="stars" checked>Star map</label>
+    <label class="ck"><input type="checkbox" data-g="lod" checked>Sharper imagery when zoomed (Moon Trek, online)</label>
+    <label class="ck"><input type="checkbox" data-g="grid">Latitude/longitude grid</label>
+    <label class="ck"><input type="checkbox" data-g="marks" checked>Sun and Earth overhead points</label>
+    <label class="rng">Relief strength <input type="range" data-g="relief" min="0" max="4" step="0.1" value="1.6"><output data-o="relief"></output></label>
+    <p class="dsub">3D horizon</p>
+    <label class="ck"><input type="checkbox" data-s="paths" checked>Sun and Earth paths</label>
+    <label class="ck"><input type="checkbox" data-s="stars" checked>Stars</label>
+    <label class="ck"><input type="checkbox" data-s="grid">Altitude/azimuth grid</label>
+    <label class="ck"><input type="checkbox" data-s="labels" checked>Labels</label>
+    <label class="ck"><input type="checkbox" data-s="skyline" checked>Skyline outline</label>
+    <label class="ck"><input type="checkbox" data-s="shadows" checked>Terrain shadows</label>
+    <label class="ck"><input type="checkbox" data-s="detail" checked>Synthetic detail below 2 km (cosmetic)</label>
+    <label class="rng">Sun/Earth size <input type="range" data-s="scale" min="1" max="10" step="0.5" value="1"><output data-o="scale"></output></label>
+    <label class="rng">Exposure <input type="range" data-s="exp" min="0.3" max="3" step="0.05" value="1"><output data-o="exp"></output></label>
+  </div>
 </div>
 
 <footer class="status">
   <span id="stCursor"></span>
   <span id="stData"></span>
   <span id="stSurface"></span>
-  <span class="keys">Double-click the Moon to inspect a spot. Esc closes a site. Space plays. Drag the surface view to look around.</span>
+  <span class="keys">Double-click the Moon to add a pin · Esc closes a site · Space plays · Drag the 3D horizon to look around</span>
 </footer>
-<script src="web/data/navigator-data.fake.js"></script>
 <script src="web/data/navigator-data.js" onerror="void 0"></script>
-<script src="web/data/past-landings.js"></script>
-<script src="web/data/terrain-lowres.js" onerror="void 0"></script>
-<script src="moon-texture.js" onerror="void 0"></script>
+<script src="web/data/past-landings.js" onerror="void 0"></script>
 <script src="web/terrain.js"></script>
 <script src="web/moonsky/moon-sky.js"></script>
 <script src="globe.js"></script>

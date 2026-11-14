@@ -23,22 +23,41 @@ Hard constraints:
 - **Numbers must be defensible.** Skyfield/DE421 is the reference; every derived number should
   be traceable to the data file or to a documented formula.
 
+## 1b. UI update (Nov 2026)
+
+- Layout: `.stage` holds the site panel, a splitter and the globe. Classes on `#stage`: `insite`, `v3d` / `v2d`.
+  3D: info panel left (width `--info-w`, dragged on `#split`), 3D horizon right. 2D: one full-width panel with the
+  unrolled skyline (`renderPano`); the globe is hidden. Default view is 3D.
+- Sites: `allSites()` = analysed (`group: 'pole'`) + past landings (`'past'`) + user pins (`'pin'`, kept until reload).
+  All are ranked together and can be compared.
+- Compare: `state.picking` (choosing in list/pins), `state.sel`, `state.cmpOpen` (`#comparePanel`).
+- Display settings live in `#displayBox`, moved into whichever technical panel is visible. Globe options `gopt`
+  go to `Globe.set`; 3D options go to `SURF.setOption`. The 3D view's own ☰ menu is hidden when embedded.
+- 3D horizon paths: `setWindow(stayStart, stayEnd, pathStart, pathEnd)`; `_buildPaths` splits the paths into
+  stay / other x above / behind the skyline (cut at the crossing) and draws them after the terrain, dashed when
+  hidden. Dashed outlines (`.so`, `.eo`) mark a hidden Sun or Earth. A skyline outline and a faint ambient fill
+  keep shadowed ridges visible against the black sky.
+- Loading: the globe loader (`#globeLoad`) shows until the colour map is ready; relief, stars and the coarse
+  terrain stream in afterwards (dynamic `<script>` tags, so `file://` still works).
+
 ## 2. Repo map
 
 | Path | Role | Loaded by the page? |
 |---|---|---|
-| `index.html` | Layout: top bar, site list, globe stage, site panel, status bar, script order | yes |
+| `index.html` | Layout: top bar (mission, Compare, Technical), site list + pin form, stage (site panel, splitter, globe/3D horizon, compare panel), display settings box, status bar | yes |
 | `app.js` | All app logic (data layer, ranking, panels, timeline, surface-view wiring) | yes |
-| `globe.js` | `Globe`: ray-traced WebGL2 Moon, pins projection, `flyTo` camera animation | yes |
+| `globe.js` | `Globe`: ray-traced WebGL2 Moon with LOLA relief, star map, Moon Trek zoom imagery, smooth zoom/inertia, pins projection, `flyTo` | yes |
 | `style.css` | All styles (dark theme, colours in `:root`) | yes |
 | `moon-texture.js` | `MOON_TEXTURE` = NASA LRO colour map as a base64 JPEG data URL (2.3 MB) | yes |
 | `web/terrain.js` | `Terrain`: terrain-horizon maths on a south-polar grid (browser + node) | yes |
 | `web/moonsky/moon-sky.js` | `<moon-sky>` web component: the first-person surface view | yes |
 | `web/moonsky/{meta,stars,earth}.js`, `ephem/<year>.js`, `dem/<b>-<s>.js` | Data for the surface view, loaded on demand | on demand |
 | `web/data/navigator-data.js` | Real data file (precompute output). **Not written yet** | yes, if present |
-| `web/data/navigator-data.fake.js` | FAKE fixture with the real shape (banner shown while used) | yes |
-| `web/data/past-landings.js` | `PAST_LANDINGS`: 27 past landings, approximate coordinates | yes, optional |
-| `web/data/terrain-lowres.js` | `TERRAIN_LOWRES`: 720 m south-polar grid for picked spots | yes, optional |
+| `web/data/navigator-data.fake.js` | FAKE fixture with the real shape (kept for the tools, not loaded) | no |
+| `web/data/past-landings.js` | `PAST_LANDINGS`: 27 past landings (rounded published coordinates); full candidates in the list | yes |
+| `web/data/terrain-lowres.js` | `TERRAIN_LOWRES`: 720 m south-polar grid for pins/past sites south of 80° S | on demand |
+| `web/data/moon-relief.js` | `MOON_RELIEF`: LOLA slope maps (global LDEM_16, polar LDEM_75S_120M) for the globe | on demand |
+| `web/tools/build_relief.py` | Writes `moon-relief.js` (numpy, Pillow; needs the moonsky DEM tiles and `data/LDEM_75S_120M.IMG`) | tool |
 | `web/tools/make_fake_data.js` | Writes the fake fixture (node; needs `data/LDEM_75S_120M.IMG`) | tool |
 | `web/tools/build_terrain.py` | Writes `terrain-lowres.js` (numpy; same input) | tool |
 | `web/tools/build_texture.py` | Writes a sharper `moon-texture.js` | tool |
@@ -94,7 +113,9 @@ Script order in `index.html` matters: data files → `moon-texture.js` → `web/
 4. **Lists and pins**: `rank()`, `renderList()`, `renderPins()` (HTML buttons positioned with
    `Globe.project`), `lightGlobe()` (Sun/Earth sub-points → globe lighting).
 5. **Whole-Moon technical panel**: `renderMoonTech()`, `fillRules()`.
-6. **Site inspector**: `renderOptions` (recovery suggestions), `renderSurfCap` (caption for the
+6. **Site inspector**: `renderOptions` (recovery suggestions), tiles, `renderPano` (2D horizon), `renderCal`
+   (landing-date explorer), `renderWhy` (plain-language reasons), `renderStrips`, `renderSiteTech`. Compare:
+   `evaluate`, `better`, `renderCompare`. (Older text below:) `renderSurfCap` (caption for the
    3D view), `renderStrips` (timeline bars), `renderSiteTech` (table + elevation chart),
    `renderSite()` (calls the above, then `syncSurface()`).
 7. **3D surface view**: see section 6.
@@ -225,7 +246,7 @@ skyline.
 - **Data file**: the frontend reads `NAV_DATA` (contract v1.0): hourly Sun/Earth alt/az for 5
   analysed sites in 2027, 720-bin skylines for masts 2 m and 10 m, disc diameters. The real
   file (`precompute/`, Skyfield) does not exist yet; the **fake fixture** uses the Meeus
-  `ephem.js`, 120 m-only horizons and placeholder coordinates. The app shows a FAKE banner.
+  `ephem.js`, 120 m-only horizons and placeholder coordinates. The page no longer loads it; the real file exists now.
 - **Surface-view ephemeris**: real Skyfield/DE421, built by `web/tools/build_moonsky_data.py`,
   which also prints the check against Skyfield. In the app it is only the fallback for
   positions (the data file wins) and the source for stars and Earth's rotation.
