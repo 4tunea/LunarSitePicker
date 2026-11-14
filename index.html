@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lunar landing site navigator</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <h1>Lunar landing site navigator</h1>
+  <div class="datebar">
+    <button class="btn step" id="prevDay" type="button" aria-label="Previous day">&#8249;</button>
+    <label>Landing date (UTC) <input type="date" id="date"></label>
+    <button class="btn step" id="nextDay" type="button" aria-label="Next day">&#8250;</button>
+  </div>
+  <label class="switch"><input type="checkbox" id="techToggle"><span class="track" aria-hidden="true"></span>Show technical data</label>
+</header>
+
+<div class="app" id="app">
+  <aside class="side" id="side" aria-label="Recommended landing sites">
+    <div class="side-head">
+      <h2>Recommended landing sites</h2>
+      <button class="btn small" id="hideSide" type="button">Hide</button>
+    </div>
+    <p class="hint" id="sideSub"></p>
+    <ol id="rank" class="rank"></ol>
+    <h3 id="notHead">Not recommended on this date</h3>
+    <ul id="notRank" class="rank off"></ul>
+  </aside>
+
+  <main class="stage" id="stage">
+    <div class="globe" id="globeWrap">
+      <canvas id="globe" aria-label="3D Moon with recommended landing sites"></canvas>
+      <div id="pins"></div>
+      <button class="btn showside" id="showSide" type="button" hidden>Recommended landing sites</button>
+      <div class="viewbtns">
+        <button class="btn small" id="viewAll" type="button">Whole Moon</button>
+        <button class="btn small" id="viewPole" type="button">South pole</button>
+        <button class="btn small" id="zoomIn" type="button" aria-label="Zoom in">+</button>
+        <button class="btn small" id="zoomOut" type="button" aria-label="Zoom out">&minus;</button>
+      </div>
+      <p class="globehint" id="globeHint">Drag to turn the Moon. Scroll to zoom. Click a pin to land there, or double-click the surface to test your own spot.</p>
+      <p class="nogl" id="noGl" hidden>This browser cannot draw the 3D Moon. Pick a site from the list instead.</p>
+      <section class="moontech" id="moonTech" hidden>
+        <h2>The Moon on this date</h2>
+        <table id="moonTable"></table>
+        <h3>How sites are ranked</h3>
+        <p class="note">A site is recommended when the Sun is up and Earth is in view on the landing date, and both stay that way for at least 5 days. The score is 60% time with both after landing (up to 14 days), 20% share of the lunar day in sunlight, 20% share with Earth in view. Terrain, slopes and hazards are not included.</p>
+        <table id="rankTable" class="ranktable"></table>
+      </section>
+    </div>
+
+    <section class="sitepanel" id="sitePanel" hidden>
+      <div class="sp-left">
+        <button class="btn small" id="back" type="button">Back to the whole Moon</button>
+        <h2 id="siteName"></h2>
+        <p id="siteMeta" class="hint"></p>
+        <p id="badge" class="badge"></p>
+        <div class="verdict" id="verdict" aria-live="polite"></div>
+        <div class="stats" id="stats"></div>
+      </div>
+      <div class="sp-right">
+        <figure class="sky">
+          <svg id="sky" viewBox="0 0 800 250" role="img" aria-label="View from the surface with the Sun and Earth"></svg>
+          <figcaption>The view from the surface, all the way around the lander. Faint lines show where the Sun and Earth travel over the next lunar day.</figcaption>
+        </figure>
+        <div class="timeline">
+          <div class="tl-head">
+            <button class="btn small" id="play" type="button">Play</button>
+            <span id="clock"></span>
+            <span class="legend"><i class="k s"></i>Sun up <i class="k e"></i>Earth in view</span>
+          </div>
+          <svg id="strips" viewBox="0 0 800 50" preserveAspectRatio="none" aria-hidden="true"></svg>
+          <input type="range" id="scrub" min="0" max="708" step="1" value="0" aria-label="Hours after landing date">
+          <div class="tl-scale"><span>Landing</span><span>+1 week</span><span>+2 weeks</span><span>+3 weeks</span><span>+1 lunar day</span></div>
+        </div>
+      </div>
+      <div class="sitetech" id="siteTech" hidden>
+        <h3>Technical data for this site</h3>
+        <div class="techgrid">
+          <table id="techTable"></table>
+          <figure>
+            <svg id="elChart" viewBox="0 0 520 220" role="img" aria-label="Elevation of Sun and Earth over the lunar day"></svg>
+            <figcaption>Elevation above the horizon over the lunar day, in degrees.</figcaption>
+          </figure>
+        </div>
+        <p class="note">Positions come from an approximate model that runs in this page (truncated Meeus lunar theory with optical librations, about 0.1° accuracy). The horizon is a smooth sphere, so terrain is not included. Near the poles the Sun stays within about 1.5° of the horizon, so real ridges and crater rims change these results a lot. The Sun counts as up when any part of its disc is above the horizon, Earth when its centre is.</p>
+        <div class="hz">
+          <button class="btn small" id="hzBtn" type="button">Check against JPL Horizons</button>
+          <span id="hzMsg" class="hint"></span>
+          <pre id="hzOut" hidden></pre>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+<script src="ephem.js"></script>
+<script src="sites.js"></script>
+<script src="globe.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
