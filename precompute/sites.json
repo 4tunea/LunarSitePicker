@@ -3,6 +3,7 @@
     "id": "connecting-ridge",
     "name": "Connecting Ridge",
     "pgda_site": "Site01",
+    "pick": "summit",
     "lat_deg": -89.43891,
     "lon_deg": -137.14357,
     "coord_source": {
@@ -19,12 +20,23 @@
     "id": "shackleton-rim",
     "name": "Shackleton Rim",
     "pgda_site": "Site04",
-    "lat_deg": -89.52911,
-    "lon_deg": -140.94069,
+    "pick": {
+      "kind": "rim-crest",
+      "crater_centre": [
+        -89.66,
+        129.2
+      ],
+      "radius_km": [
+        9.5,
+        12.5
+      ]
+    },
+    "lat_deg": -89.7804,
+    "lon_deg": -156.19695,
     "coord_source": {
       "kind": "dem-metadata",
-      "ref": "highest point of PGDA 5 m tile Site04, chosen by team",
-      "note": "Site04_final_adj_5mpp_surf.tif pixel line 2417, sample 0, height 1805.1 m (LDEM 120 m there: 1800.8 m), 0 m from the nearest tile edge; summit at the tile edge. Not a published landing coordinate; the tile is 16.0 x 16.0 km."
+      "ref": "highest point on the rim crest within PGDA tile Site04, chosen by team",
+      "note": "Site04_final_adj_5mpp_surf.tif pixel line 1418, sample 1262, height 1739.1 m (LDEM 120 m there: 1733.1 m), 6310 m from the nearest tile edge; 10.7 km from the crater centre (-89.66, 129.2), annulus (9.5, 12.5) km. Not a published landing coordinate; the tile is 16.0 x 16.0 km."
     },
     "near_field": {
       "file": "Site04_final_adj_5mpp_surf.tif",
@@ -35,6 +47,7 @@
     "id": "malapert-massif",
     "name": "Malapert Massif",
     "pgda_site": "Site23",
+    "pick": "summit",
     "lat_deg": -85.98768,
     "lon_deg": 2.06813,
     "coord_source": {
@@ -51,6 +64,7 @@
     "id": "haworth",
     "name": "Haworth",
     "pgda_site": "Haworth",
+    "pick": "summit",
     "lat_deg": -86.36454,
     "lon_deg": -23.20848,
     "coord_source": {
@@ -67,6 +81,7 @@
     "id": "nobile-rim-2",
     "name": "Nobile Rim 2",
     "pgda_site": "DM2",
+    "pick": "summit",
     "lat_deg": -84.07911,
     "lon_deg": 54.88894,
     "coord_source": {
@@ -77,6 +92,23 @@
     "near_field": {
       "file": "DM2_final_adj_5mpp_surf.tif",
       "extent_km": 20.0
+    }
+  },
+  {
+    "id": "connecting-ridge-lower",
+    "name": "Connecting Ridge (lower slope)",
+    "pgda_site": "Site01",
+    "pick": "fixed",
+    "lat_deg": -89.4632,
+    "lon_deg": -137.4896,
+    "coord_source": {
+      "kind": "dem-metadata",
+      "ref": "centre of PGDA 5 m tile Site01 (x -11000 m, y -12000 m), chosen by team as a lower-slope comparison point",
+      "note": "0.7 km from the Connecting Ridge summit and about 15 m lower, on the slope: the site where nearby terrain hides the Sun. Not a published landing coordinate; the tile is 16.0 x 16.0 km."
+    },
+    "near_field": {
+      "file": "Site01_final_adj_5mpp_surf.tif",
+      "extent_km": 16.0
     }
   }
 ]
