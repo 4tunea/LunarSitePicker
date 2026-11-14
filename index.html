@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lunar landing site navigator</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="bar">
+  <h1>Lunar landing site navigator</h1>
+  <div class="mission" role="group" aria-label="Mission">
+    <div class="field">
+      <label for="date">Planned landing (UTC)</label>
+      <div class="row"><input type="date" id="date"></div>
+    </div>
+    <div class="field slipfield">
+      <label for="slip">Launch slip</label>
+      <div class="row"><input type="range" id="slip" min="0" max="56" step="1" value="0"><output id="slipOut" for="slip"></output></div>
+    </div>
+    <div class="field">
+      <label for="days">Stay on the surface</label>
+      <div class="row"><input type="number" id="days" min="1" max="60" step="1" inputmode="numeric"><span class="unit">days</span></div>
+    </div>
+    <p class="readout" id="missionOut" aria-live="polite"></p>
+  </div>
+  <div class="tools">
+    <button class="btn" id="sideToggle" type="button" aria-pressed="true">Site list</button>
+    <label class="switch"><input type="checkbox" id="techToggle"><span class="track" aria-hidden="true"></span>Technical data</label>
+  </div>
+</header>
+<p class="fake" id="fakeBanner" hidden>FAKE DATA. These numbers are placeholders for building the interface. Do not use them for any result.</p>
+
+<div class="app" id="app">
+  <aside class="side" id="side" aria-label="Landing sites">
+    <h2>Landing sites</h2>
+    <p class="hint" id="sideSub"></p>
+    <ol id="rank" class="rank"></ol>
+    <details id="pastBox">
+      <summary id="pastSum">Past landings, for reference</summary>
+      <p class="hint">Not part of the analysed set. Approximate coordinates, and no terrain except south of 80° S.</p>
+      <ul id="pastList" class="rank"></ul>
+    </details>
+  </aside>
+
+  <main class="stage" id="stage">
+    <div class="globe" id="globeWrap">
+      <canvas id="globe" aria-label="3D Moon with landing sites"></canvas>
+      <div id="pins"></div>
+      <moon-sky id="surface" embedded aria-label="View from the surface at the selected site, with the Sun and Earth"></moon-sky>
+      <button class="btn small surfback" id="surfBack" type="button">← Back to the Moon</button>
+      <div class="surfload" id="surfLoad" role="status" aria-live="polite">
+        <div class="sl-card">
+          <div class="sl-moon" aria-hidden="true"><i></i></div>
+          <p class="sl-kicker">Opening the surface view</p>
+          <h2 id="slName"></h2>
+          <p class="hint" id="slCoord"></p>
+          <div class="sl-bar" aria-hidden="true"><i id="slBar"></i></div>
+          <p class="sl-stage" id="slStage"></p>
+          <p class="sl-err" id="slErr" hidden></p>
+          <button class="btn small" id="slBack" type="button" hidden>← Back to the Moon</button>
+        </div>
+      </div>
+      <p class="nogl" id="noGl" hidden>This browser cannot draw the 3D Moon. Pick a site from the list instead.</p>
+      <section class="moontech" id="moonTech" hidden>
+        <h2>The Moon at landing</h2>
+        <table id="moonTable"></table>
+
+        <h3>What counts as available</h3>
+        <div class="rules">
+          <label>Mast height <select id="setMast"></select></label>
+          <label>Sun disc showing, at least <span><input type="number" id="setSun" min="1" max="100" step="1"> %</span></label>
+          <label>Earth above the skyline by <span><input type="number" id="setEarth" min="0" max="5" step="0.1"> °</span></label>
+          <label>Share of the stay with both <span><input type="number" id="setShare" min="0" max="100" step="5"> %</span></label>
+        </div>
+
+        <h3>Inspect coordinates</h3>
+        <form class="rules" id="coordForm">
+          <label>Latitude <span><input type="number" id="cLat" min="-90" max="90" step="0.0001" value="-88.5" required> °</span></label>
+          <label>Longitude, east positive <span><input type="number" id="cLon" min="-180" max="180" step="0.0001" value="45" required> °</span></label>
+          <button class="btn small" type="submit">Inspect this spot</button>
+        </form>
+
+        <h3>All analysed sites</h3>
+        <table id="rankTable" class="ranktable"></table>
+        <h3>Data file</h3>
+        <table id="dataTable"></table>
+      </section>
+    </div>
+
+    <section class="sitepanel" id="sitePanel" hidden>
+      <div class="sp-left">
+        <h2 id="siteName"></h2>
+        <p id="siteMeta" class="hint"></p>
+        <p id="badge" class="badge"></p>
+        <p id="slipLine" class="slipline"></p>
+        <div class="options" id="options" hidden></div>
+        <div class="verdict" id="verdict" aria-live="polite"></div>
+        <div class="stats" id="stats"></div>
+      </div>
+      <div class="sp-right">
+        <p class="hint surfcap" id="surfCap"></p>
+        <div class="timeline">
+          <div class="tl-head">
+            <button class="btn small" id="play" type="button">Play</button>
+            <span id="clock"></span>
+            <span class="legend"><i class="k s"></i>Sun <i class="k e"></i>Earth <i class="k a"></i>Both</span>
+          </div>
+          <svg id="strips" viewBox="0 0 800 62" preserveAspectRatio="none" aria-hidden="true"></svg>
+          <input type="range" id="scrub" min="0" max="1344" step="1" value="0" aria-label="Time">
+          <div class="tl-scale" id="tlScale"></div>
+        </div>
+      </div>
+      <div class="sitetech" id="siteTech" hidden>
+        <h3>Technical data for this site</h3>
+        <div class="techgrid">
+          <table id="techTable"></table>
+          <figure>
+            <svg id="elChart" viewBox="0 0 520 220" role="img" aria-label="Elevation of Sun and Earth over the stay"></svg>
+            <figcaption>Elevation above the horizontal over the stay, in degrees. Dashed lines are the skyline in the direction of the Sun and of Earth.</figcaption>
+          </figure>
+        </div>
+        <p class="note" id="siteNote"></p>
+      </div>
+    </section>
+  </main>
+</div>
+
+<footer class="status">
+  <span id="stCursor"></span>
+  <span id="stData"></span>
+  <span id="stSurface"></span>
+  <span class="keys">Double-click the Moon to inspect a spot. Esc closes a site. Space plays. Drag the surface view to look around.</span>
+</footer>
+<script src="web/data/navigator-data.fake.js"></script>
+<script src="web/data/navigator-data.js" onerror="void 0"></script>
+<script src="web/data/past-landings.js"></script>
+<script src="web/data/terrain-lowres.js" onerror="void 0"></script>
+<script src="moon-texture.js" onerror="void 0"></script>
+<script src="web/terrain.js"></script>
+<script src="web/moonsky/moon-sky.js"></script>
+<script src="globe.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
