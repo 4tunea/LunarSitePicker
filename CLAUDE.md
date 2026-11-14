@@ -1,5 +1,7 @@
 # Navigator – Lunar Window Planner (NASA Space Apps 2026)
 
+Code walkthrough for agents (files, data flow, surface view, pitfalls): see `AGENTS.md`.
+
 Challenge: "Lunar Landing Site Navigator". Build a tool that lets mission planners
 compare lunar south-pole landing sites and dates quickly, showing Sun and Earth
 positions relative to the local horizon (power + direct-to-Earth comms).

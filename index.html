@@ -47,6 +47,20 @@
     <div class="globe" id="globeWrap">
       <canvas id="globe" aria-label="3D Moon with landing sites"></canvas>
       <div id="pins"></div>
+      <moon-sky id="surface" embedded aria-label="View from the surface at the selected site, with the Sun and Earth"></moon-sky>
+      <button class="btn small surfback" id="surfBack" type="button">← Back to the Moon</button>
+      <div class="surfload" id="surfLoad" role="status" aria-live="polite">
+        <div class="sl-card">
+          <div class="sl-moon" aria-hidden="true"><i></i></div>
+          <p class="sl-kicker">Opening the surface view</p>
+          <h2 id="slName"></h2>
+          <p class="hint" id="slCoord"></p>
+          <div class="sl-bar" aria-hidden="true"><i id="slBar"></i></div>
+          <p class="sl-stage" id="slStage"></p>
+          <p class="sl-err" id="slErr" hidden></p>
+          <button class="btn small" id="slBack" type="button" hidden>← Back to the Moon</button>
+        </div>
+      </div>
       <p class="nogl" id="noGl" hidden>This browser cannot draw the 3D Moon. Pick a site from the list instead.</p>
       <section class="moontech" id="moonTech" hidden>
         <h2>The Moon at landing</h2>
@@ -85,10 +99,7 @@
         <div class="stats" id="stats"></div>
       </div>
       <div class="sp-right">
-        <figure class="sky">
-          <svg id="sky" viewBox="0 0 800 250" role="img" aria-label="View from the surface with the Sun and Earth"></svg>
-          <figcaption id="skyCap"></figcaption>
-        </figure>
+        <p class="hint surfcap" id="surfCap"></p>
         <div class="timeline">
           <div class="tl-head">
             <button class="btn small" id="play" type="button">Play</button>
@@ -119,7 +130,7 @@
   <span id="stCursor"></span>
   <span id="stData"></span>
   <span id="stSurface"></span>
-  <span class="keys">Double-click the Moon to inspect a spot. Esc closes a site. Space plays.</span>
+  <span class="keys">Double-click the Moon to inspect a spot. Esc closes a site. Space plays. Drag the surface view to look around.</span>
 </footer>
 <script src="web/data/navigator-data.fake.js"></script>
 <script src="web/data/navigator-data.js" onerror="void 0"></script>
@@ -127,6 +138,7 @@
 <script src="web/data/terrain-lowres.js" onerror="void 0"></script>
 <script src="moon-texture.js" onerror="void 0"></script>
 <script src="web/terrain.js"></script>
+<script src="web/moonsky/moon-sky.js"></script>
 <script src="globe.js"></script>
 <script src="app.js"></script>
 </body>

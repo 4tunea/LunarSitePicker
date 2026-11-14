@@ -344,56 +344,14 @@
       box.appendChild(nb);
     }
   }
-  function renderSky(site, k) {
-    var svg = $('sky'); clear(svg);
-    var s = series(site), W = 800, TOP = 16, BOT = 250, a0 = landK(), a1 = Math.min(N - 1, a0 + M()), i;
-    var peak = -90, ridge = -90;
-    for (i = a0; i <= a1; i++) peak = Math.max(peak, s.sunAlt[i], s.earthAlt[i]);
-    for (i = 0; i < 360; i += 2) ridge = Math.max(ridge, skyline(site, i));
-    var elMax = Math.min(90, Math.max(10, Math.ceil(Math.max(peak, ridge) + 4))), elMin = -Math.max(5, elMax * 0.3);
-    var X = function (az) { return ((az + 180) % 360) / 360 * W; };
-    var Y = function (a) { return TOP + (elMax - a) / (elMax - elMin) * (BOT - TOP); };
-    for (i = 0; i < 70; i++) {
-      var r1 = Math.abs(Math.sin(i * 12.9898) * 43758.5453) % 1, r2 = Math.abs(Math.sin(i * 78.233) * 12543.123) % 1;
-      svg.appendChild(el('circle', { cx: (r1 * W).toFixed(0), cy: (r2 * (Y(0) - 6)).toFixed(0), r: r1 > 0.8 ? 1.1 : 0.6, fill: '#8f9ac0', opacity: 0.6 }));
-    }
-    var step = elMax <= 20 ? 5 : elMax <= 50 ? 10 : 20;
-    for (var g = step; g < elMax; g += step) {
-      svg.appendChild(el('line', { x1: 0, x2: W, y1: Y(g), y2: Y(g), stroke: '#1d2548', 'stroke-width': 1 }));
-      svg.appendChild(el('text', { x: 8, y: Y(g) - 4, fill: '#7d88ad', 'font-size': 11 }, g + '°'));
-    }
-    function trace(az, alt, color) {
-      var d = '', px = null;
-      for (var j = a0; j <= a1; j++) {
-        var x = X(az[j]), y = Y(Math.max(elMin, alt[j]));
-        d += (px == null || Math.abs(x - px) > W / 2 ? 'M' : 'L') + x.toFixed(1) + ' ' + y.toFixed(1); px = x;
-      }
-      svg.appendChild(el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.5, opacity: 0.5 }));
-    }
-    trace(s.sunAz, s.sunAlt, '#F5A524'); trace(s.earthAz, s.earthAlt, '#5AA9FF');
-    function body(az, alt, up, color, r, name) {
-      var x = X(az), y = Y(Math.max(elMin * 0.55, alt)), a = { cx: x, cy: y, r: r };
-      if (up) a.fill = color; else { a.fill = 'none'; a.stroke = color; a['stroke-width'] = 1.5; a['stroke-dasharray'] = '3 3'; }
-      svg.appendChild(el('circle', a));
-      var right = x < W - 70;
-      svg.appendChild(el('text', { x: x + (right ? r + 6 : -r - 6), y: y + 4, fill: color, 'font-size': 13, 'font-weight': 600, 'text-anchor': right ? 'start' : 'end' }, name));
-    }
-    var v = vis(site), sunUp = v.sun[k], earthUp = v.earth[k];
-    if (earthUp) body(s.earthAz[k], s.earthAlt[k], true, '#5AA9FF', 12, 'Earth');
-    if (sunUp) body(s.sunAz[k], s.sunAlt[k], true, '#F5A524', 7, 'Sun');
-    var d = 'M0 ' + BOT;                                   // ground drawn after, so it hides whatever is behind the skyline
-    for (i = -180; i <= 180; i += 0.5) d += 'L' + ((i + 180) / 360 * W).toFixed(1) + ' ' + Y(skyline(site, i)).toFixed(1);
-    svg.appendChild(el('path', { d: d + 'L' + W + ' ' + BOT + 'Z', fill: '#4a4e5c', stroke: '#b9bdc9', 'stroke-width': 1 }));
-    if (!earthUp) body(s.earthAz[k], s.earthAlt[k], false, '#5AA9FF', 12, 'Earth');
-    if (!sunUp) body(s.sunAz[k], s.sunAlt[k], false, '#F5A524', 7, 'Sun');
-    [['South', 0], ['West', 200], ['North', 400], ['East', 600], ['South', 800]].forEach(function (c) {
-      svg.appendChild(el('text', { x: c[1], y: BOT - 7, fill: '#d6d9e3', 'font-size': 12,
-        'text-anchor': c[1] === 0 ? 'start' : c[1] === 800 ? 'end' : 'middle', dx: c[1] === 0 ? 8 : c[1] === 800 ? -8 : 0 }, c[0]));
-    });
+  // Caption for the 3D surface view (web/moonsky/moon-sky.js), which replaced the flat SVG panorama.
+  function renderSurfCap(site) {
     var t = terrainOf(site);
-    $('skyCap').textContent = 'The view from the surface, all the way around the lander. ' +
-      (t === 'dem' ? 'The skyline is the analysed terrain horizon.' : t === 'coarse' ? 'The skyline is coarse terrain from a 720 m grid, good for mountains only.' : 'No terrain data here, so the horizon is a smooth sphere.') +
-      ' Faint lines show where the Sun and Earth travel during the stay.';
+    $('surfCap').textContent = 'Above: the view from the surface at this spot. Drag to look around; Play keeps the Sun centred, ' +
+      'and a yellow ring marks it when terrain hides it. ' +
+      (t === 'dem' ? 'The skyline is the analysed terrain horizon.' : t === 'coarse' ? 'The skyline is coarse terrain from a 720 m grid, good for mountains only.' :
+        'This spot has no analysed skyline, so the verdict uses a smooth sphere; the 3D terrain is NASA LOLA at about 1.9 km.') +
+      ' Sun and Earth positions are the ones used for the verdict.';
   }
   function runs(arr, a, b, both) {
     var out = [], start = -1;
@@ -503,11 +461,83 @@
      ['Longest dark stretch', dark ? dur(dark) : 'None'], ['Skyline', TERRAIN_TEXT[terrainOf(site)]]].forEach(function (r) {
       var d = html('div'); d.appendChild(html('span', '', r[0])); d.appendChild(html('b', '', r[1])); stEl.appendChild(d);
     });
-    renderSky(site, k); renderStrips(site);
+    renderSurfCap(site); renderStrips(site); syncSurface();
     var rel = k - k0;
     $('clock').textContent = fmtTime(k) + (rel < 0 ? ', ' + dur(-rel) + ' before landing' : rel > m ? ', ' + dur(rel - m) + ' after take-off' : ', day ' + (Math.floor(rel / SPD) + 1) + ' of the stay');
     $('scrub').max = spanK(); $('scrub').value = state.cur;
     renderSiteTech(site, st, k);
+  }
+
+  /* ================= 3D surface view (web/moonsky/moon-sky.js) =================
+     Opening a site zooms the globe down onto it and cross-fades into a first-person view from the surface.
+     The view takes its Sun/Earth angles and its skyline from this file's data layer, so what it shows
+     always agrees with the verdict; only stars and Earth's rotation come from its own ephemeris. */
+  var SURF = $('surface'), surfTok = 0, surfSite = null;
+  var hasSurface = !!(SURF && typeof SURF.setSite === 'function');
+  function azLerp(a, b, f) { return (a + (((b - a + 540) % 360) - 180) * f + 360) % 360; }   // unwraps 359 -> 0
+  if (hasSurface) SURF.configure({
+    sky: function (t) {                                         // contract section 4: linear between hourly samples
+      var site = surfSite, x = (t - T0) / STEP;
+      if (!site || !(x >= 0 && x <= N - 1)) return null;
+      var s = series(site), i = Math.min(N - 2, Math.floor(x)), f = x - i, j = i + 1;
+      var L = function (a) { return a[i] + (a[j] - a[i]) * f; };
+      return { sun: { alt: L(s.sunAlt), az: azLerp(s.sunAz[i], s.sunAz[j], f), diam: L(D.bodies.sun.diam_deg) },
+               earth: { alt: L(s.earthAlt), az: azLerp(s.earthAz[i], s.earthAz[j], f), diam: L(D.bodies.earth.diam_deg) } };
+    },
+    skyline: function (az) { return surfSite && horizonArr(surfSite) ? skyline(surfSite, az) : null; },
+    height: function (lat, lon) { return TER && lat < -75 ? Terrain.heightAt(TER, lat, lon) : null; }
+  });
+  // Loading screen (#surfLoad). Shown (.surface-wait) only if the view is still loading when the zoom-in
+  // ends, and on errors (.surface-error). Progress comes from the view's 'moonsky-progress' events.
+  function loadScreen(site) {
+    $('slName').textContent = site.name; $('slCoord').textContent = coord(site.lat, site.lon);
+    $('slErr').hidden = true; $('slBack').hidden = true;
+    loadProgress('Zooming in', 0);
+  }
+  function loadProgress(label, frac) {
+    $('slStage').textContent = label + (frac > 0 && frac < 1 ? '… ' + Math.round(frac * 100) + '%' : frac < 1 ? '…' : '');
+    $('slBar').style.width = Math.round(Math.max(0, Math.min(1, frac)) * 100) + '%';
+  }
+  function loadError(err) {
+    var wrap = $('globeWrap');
+    wrap.classList.remove('surface-loading', 'surface-wait'); wrap.classList.add('surface-error');
+    $('slStage').textContent = '';
+    $('slErr').textContent = 'The surface view could not open: ' + ((err && err.message) || err);
+    $('slErr').hidden = false; $('slBack').hidden = false;
+  }
+  if (hasSurface) SURF.addEventListener('moonsky-progress', function (e) {
+    if ($('globeWrap').classList.contains('surface-loading')) loadProgress(e.detail.label, e.detail.frac);
+  });
+  function syncSurface() {                                      // the panel's clock drives the view
+    if (!hasSurface || !state.site || state.site !== surfSite) return;
+    SURF.setWindow(ms(landK()), ms(Math.min(N - 1, landK() + M())));
+    SURF.setTime(ms(curK()));
+  }
+  function openSurface(site) {
+    if (!hasSurface) { Globe.flyTo(site.lon, site.lat, 1.5); return; }
+    var tok = ++surfTok, wrap = $('globeWrap');
+    wrap.classList.remove('surface-on', 'surface-error', 'surface-wait'); wrap.classList.add('surface-loading');
+    loadScreen(site);
+    surfSite = site;
+    SURF.setTracking(false); SURF.setEyeHeight(set.mast);
+    syncSurface();
+    var flown = new Promise(function (res) { Globe.flyTo(site.lon, site.lat, 1.07, res, 1100); setTimeout(res, 1600); });
+    flown.then(function () { if (tok === surfTok && wrap.classList.contains('surface-loading')) wrap.classList.add('surface-wait'); });
+    var built = SURF.setSite(site.lat, site.lon, site.name).then(function () { return null; }, function (e) { return e; });
+    Promise.all([flown, built]).then(function (r) {
+      if (tok !== surfTok) return;
+      if (r[1]) { loadError(r[1]); return; }
+      loadProgress('Ready', 1);
+      wrap.classList.remove('surface-loading', 'surface-wait');
+      syncSurface();
+      wrap.classList.add('surface-on');
+      if (playing) SURF.setTracking(true);
+    });
+  }
+  function closeSurface() {
+    surfTok++;
+    $('globeWrap').classList.remove('surface-on', 'surface-loading', 'surface-wait', 'surface-error');
+    if (hasSurface) SURF.setTracking(false);
   }
 
   /* ================= flow ================= */
@@ -532,12 +562,16 @@
     rank(); lightGlobe(); renderList(); renderPins(); renderMoonTech(); renderSite();
   }
   function tick() { lightGlobe(); renderPins(); renderSite(); }
-  function stop() { if (playing) { clearInterval(playing); playing = null; $('play').textContent = 'Play'; } }
+  function stop() {
+    if (playing) { clearInterval(playing); playing = null; $('play').textContent = 'Play'; }
+    if (hasSurface) SURF.setTracking(false);
+  }
   function play() {
     if (playing) { stop(); return; }
     var a = landK() - planK(), b = Math.min(spanK(), a + M());
     if (state.cur < a || state.cur >= b) state.cur = a;
     $('play').textContent = 'Pause';
+    if (hasSurface && $('globeWrap').classList.contains('surface-on')) SURF.setTracking(true);   // keep the Sun centred
     var stepK = Math.max(1, Math.round(M() / 200));
     playing = setInterval(function () { state.cur = Math.min(b, state.cur + stepK); tick(); if (state.cur >= b) stop(); }, 60);
   }
@@ -546,12 +580,12 @@
     if (!state.site) state.home = Globe.view();
     state.site = site; state.cur = landK() - planK();
     refresh();
-    Globe.flyTo(site.lon, site.lat, 1.5);
+    openSurface(site);
     $('sitePanel').scrollTop = 0;
   }
   function back() {
     if (!state.site) return;
-    stop(); state.site = null; refresh();
+    stop(); closeSurface(); state.site = null; refresh();
     var h = state.home || { lon: 15, lat: -40, dist: 4.2 };
     Globe.flyTo(h.lon, h.lat, Math.max(h.dist, 3));
   }
@@ -580,6 +614,8 @@
   $('sideToggle').addEventListener('click', function () { state.side = !state.side; refresh(); });
   $('pastBox').addEventListener('toggle', refresh);
   $('play').addEventListener('click', play);
+  $('surfBack').addEventListener('click', back);
+  $('slBack').addEventListener('click', back);
   $('scrub').addEventListener('input', function () { stop(); state.cur = +this.value; tick(); });
   ['setMast', 'setSun', 'setEarth', 'setShare'].forEach(function (id) {
     $(id).addEventListener('change', function () {
@@ -588,6 +624,7 @@
       set.earth = Math.max(0, +$('setEarth').value || 0);
       set.share = Math.max(0, Math.min(1, (+$('setShare').value || 0) / 100));
       fillRules(); refresh();
+      if (hasSurface && state.site) SURF.setEyeHeight(set.mast);        // new mast -> new skyline in the 3D view
     });
   });
   $('coordForm').addEventListener('submit', function (ev) {
@@ -598,6 +635,7 @@
   document.addEventListener('keydown', function (ev) {
     if (ev.key === 'Escape') { back(); return; }
     if (/^(INPUT|BUTTON|SELECT|TEXTAREA|SUMMARY)$/.test(ev.target.tagName)) return;
+    if (ev.target.tagName === 'MOON-SKY' && ev.key.indexOf('Arrow') === 0) return;   // arrows look around in the 3D view
     if (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') {
       var sign = ev.key === 'ArrowLeft' ? -1 : 1;
       if (state.site) { stop(); state.cur = Math.max(0, Math.min(spanK(), state.cur + sign * 3)); tick(); } else setMission(state.plan, state.slip + sign, state.days);
@@ -640,6 +678,7 @@
       TER = Terrain.fromDeltas(t.n, t.px_m, t.quant_m, new Uint8Array(buf));
       PAST.concat(state.custom ? [state.custom] : []).forEach(function (s) { s.hz = null; s.vis = null; });
       refresh();
+      if (hasSurface && state.site && state.site === surfSite) SURF.rebuild();   // finer polar terrain + skyline now known
     }).catch(function () {});
   }
 

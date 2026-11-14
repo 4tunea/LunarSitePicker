@@ -109,11 +109,11 @@ var Globe = (function () {
   function draw(now) {
     raf = 0;
     if (anim) {
-      var k = Math.min(1, (now - anim.t0) / anim.ms); if (!(k >= 0)) k = 0;
+      var k = Math.min(1, (performance.now() - anim.t0) / anim.ms); if (!(k >= 0)) k = 0;   // same clock as t0
       var e = k < .5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
       cam.lon = anim.a.lon + anim.dlon * e; cam.lat = anim.a.lat + (anim.b.lat - anim.a.lat) * e;
       cam.dist = anim.a.dist + (anim.b.dist - anim.a.dist) * e;
-      if (k >= 1) anim = null; else request();
+      if (k >= 1) { var done = anim.done; anim = null; if (done) setTimeout(done, 0); } else request();
     }
     if (gl) {
       var B = basis();
@@ -143,11 +143,13 @@ var Globe = (function () {
     var t = -b - Math.sqrt(hh), n = [B.c[0] + t * rd[0], B.c[1] + t * rd[1], B.c[2] + t * rd[2]];
     return { lat: Math.asin(Math.max(-1, Math.min(1, n[2]))) / RAD, lon: Math.atan2(n[1], n[0]) / RAD };
   }
-  function flyTo(lon, lat, dist) {
+  // Animate the camera to look straight down on lon/lat from 'dist' Moon radii. 'done' runs when it arrives
+  // (not if the user grabs the globe first). 'ms' overrides the default 900 ms.
+  function flyTo(lon, lat, dist, done, ms) {
     var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     var dlon = ((lon - cam.lon + 540) % 360) - 180;
     anim = { a: { lon: cam.lon, lat: cam.lat, dist: cam.dist }, b: { lat: Math.max(-88, Math.min(88, lat)), dist: dist },
-             dlon: dlon, t0: performance.now(), ms: still ? 1 : 900 };
+             dlon: dlon, t0: performance.now(), ms: still ? 1 : ms || 900, done: done };
     request();
   }
   // Use a real surface map. Returns false if the browser refuses the image (cross-origin).
