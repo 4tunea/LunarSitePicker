@@ -390,3 +390,13 @@ td:last-child { color: var(--ink); }
   .status .keys, .brand h1 { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } .spinner { animation-duration: 3s; } }
+
+/* Terrain coverage: analysed sites vs reference points, terrain labels, the 3D-view note */
+.rank li.grp { padding: 10px 10px 4px; font-size: 0.68rem; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.item .ter { grid-column: 2 / span 2; font-size: 0.72rem; color: var(--muted); }
+.ranktable tr.grp th { text-align: left; padding-top: 8px; color: var(--ink2); font-size: 0.72rem; }
+.wlist li.grp { padding: 6px 10px 2px; font-size: 0.66rem; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.wlist .nm small.ter { display: block; color: var(--muted); font-size: 0.7rem; font-weight: 400; }
+.surfnote { display: none; position: absolute; left: 12px; bottom: 12px; z-index: 4; max-width: 60%; margin: 0; padding: 6px 10px; border-radius: 6px;
+  background: rgba(12, 14, 19, .78); color: var(--ink); font-size: 0.76rem; pointer-events: none; }
+.globe.surface-on .surfnote { display: block; }

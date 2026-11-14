@@ -19,7 +19,9 @@
   var NAZ = D.horizon_grid.n_az, AZSTEP = D.horizon_grid.step_deg, RKM = D.constants.moon_radius_km;
   var MASTS = D.sites[0].horizons.map(function (h) { return h.mast_height_m; });
   var LAST_DAY = Math.floor((N - 1) / SPD);
-  var TER = null;                                             // coarse terrain grid for spots south of 80 S, once decoded
+  var TER = null;                                             // coarse terrain grid for spots south of 75 S, once decoded
+  var terState = 'loading';                                   // 'loading' | 'ready' | 'unavailable', decided once before the first render
+  var started = false;                                        // nothing is ranked or drawn until the terrain state is known
 
   function basis(lat, lon) {
     var a = lat * RAD, o = lon * RAD;
@@ -56,7 +58,8 @@
   var ANALYSED = D.sites.map(function (s) {
     return makeSite('analysed', 'pole', { id: s.id, name: s.name, note: 'South pole' + (s.pgda_site ? ' · PGDA ' + s.pgda_site : ''), lat: s.lat_deg, lon: s.lon_deg, src: s });
   });
-  var PAST = (window.PAST_LANDINGS || []).map(function (p) { return makeSite('past', 'past', p); });
+  var PAST = (window.PAST_LANDINGS || []).filter(function (p) { return !D.sites.some(function (s) { return s.id === p.id; }); })   // a landing that is in the data file is an analysed site
+    .map(function (p) { return makeSite('past', 'past', p); });
   var PINS = [], pinSeq = 0;
   function allSites() { return ANALYSED.concat(PAST, PINS); }
   var GROUP_TEXT = { pole: 'South pole', past: 'Past landing', pin: 'My pin' };
@@ -79,18 +82,36 @@
     }
     return (site.ser = s);
   }
-  // 'dem' = horizons from the data file, 'coarse' = built here from the low-resolution grid, 'sphere' = none.
+  // 'dem' = horizons from the data file, 'coarse' = built here from the low-resolution grid (south of 75 S; rays stop at
+  // the grid edge, so between 75 S and about 80 S the skyline is a lower bound there), 'sphere' = no terrain at all.
   function terrainOf(site) {
     if (site.src) return site.src.terrain === 'dem' ? 'dem' : 'sphere';
     if (site.hz === null) {
       site.hz = false;
-      if (TER && site.lat <= -80) {
+      if (terState === 'ready' && site.lat < -75) {
         var h = Terrain.horizon(TER, site.lat, site.lon, MASTS, { nAz: NAZ, maxRange: 150000 });
-        if (h && h.complete) { site.hz = h.elev; site.ground = h.ground; site.ser = null; }
+        if (h) { site.hz = h.elev; site.ground = h.ground; site.complete = h.complete; site.ser = null; }
       }
     }
     return site.hz ? 'coarse' : 'sphere';
   }
+  function tier(site) { return site.kind === 'analysed' ? 0 : 1; }   // 0 = analysed site, 1 = reference point (past landing or pin)
+  // False when some ray left the elevation data before its range: the skyline is a lower bound in those directions.
+  function complete(site) {
+    if (site.src) return site.src.terrain !== 'dem' || site.src.horizons.every(function (h) { return h.complete !== false; });
+    return terrainOf(site) !== 'coarse' || site.complete !== false;
+  }
+  // The label that goes with every verdict.
+  function terrainLabel(site) {
+    var t = terrainOf(site);
+    if (t === 'dem') {
+      var near = site.src.dem.some(function (d) { return d.role === 'near-field'; });
+      return 'terrain horizon (LOLA ' + (near ? '5 m + 120 m' : '120 m') + (complete(site) ? ')' : ', incomplete)');
+    }
+    if (t === 'coarse') return 'coarse terrain (720 m, lower bound' + (complete(site) ? ')' : ', incomplete at the grid edge)');
+    return 'smooth sphere, no terrain' + (terState === 'unavailable' && site.lat < -75 ? ' (coarse terrain unavailable)' : '');
+  }
+  function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
   function horizonArr(site) {
     var mi = Math.max(0, MASTS.indexOf(set.mast));
     if (site.src) return site.src.terrain === 'dem' ? site.src.horizons[mi].elev_deg : null;
@@ -110,7 +131,7 @@
   }
   // Per-sample visibility for the whole data period, cached until a rule changes.
   function vis(site) {
-    var key = [set.mast, set.sun, set.earth].join('|') + (TER ? 't' : '');
+    var key = [set.mast, set.sun, set.earth].join('|') + terState;
     terrainOf(site);
     if (site.vis && site.visKey === key) return site.vis;
     var s = series(site), v = { sun: new Uint8Array(N), earth: new Uint8Array(N), frac: new Float32Array(N), sunSky: new Float32Array(N), earthSky: new Float32Array(N), pre: new Int32Array(N + 1) };
@@ -131,10 +152,10 @@
     var both = v.pre[k0 + total] - v.pre[k0], st = { k0: k0, both: both, total: total, share: both / total, cut: k0 + m > N - 1 };
     st.sunNow = !!v.sun[k0]; st.earthNow = !!v.earth[k0];
     st.ok = st.sunNow && st.earthNow && st.share >= set.share;
-    var dipNow = Terrain.dip(set.mast);
+    var dipNow = Terrain.dip(set.mast), ter = terrainOf(site) !== 'sphere';     // "behind terrain" only when terrain was used
     if (st.ok) st.why = 'Sun and Earth for ' + hrs(both) + ' of the ' + hrs(total) + ' stay';
-    else if (!st.sunNow) st.why = s.sunAlt[k0] + D.bodies.sun.diam_deg[k0] / 2 > dipNow ? 'The Sun is behind terrain at landing' : 'The Sun is below the horizon at landing';
-    else if (!st.earthNow) st.why = s.earthAlt[k0] > dipNow ? 'Earth is behind terrain at landing' : 'Earth is below the horizon at landing';
+    else if (!st.sunNow) st.why = ter && s.sunAlt[k0] + D.bodies.sun.diam_deg[k0] / 2 > dipNow ? 'The Sun is behind terrain at landing' : 'The Sun is below the horizon at landing';
+    else if (!st.earthNow) st.why = ter && s.earthAlt[k0] > dipNow ? 'Earth is behind terrain at landing' : 'Earth is below the horizon at landing';
     else st.why = 'Sun and Earth for only ' + Math.round(st.share * 100) + '% of the stay';
     return st;
   }
@@ -236,7 +257,6 @@
   function deg(v) { return (v < 0 ? '−' : '') + Math.abs(v).toFixed(2) + '°'; }
   function deg1(v) { return (v < 0 ? '−' : '') + Math.abs(v).toFixed(1) + '°'; }
   function pct(x) { return Math.round(x * 100) + '%'; }
-  var TERRAIN_TEXT = { dem: 'Analysed terrain (LOLA 5 m + 120 m)', coarse: 'Coarse terrain, 720 m grid', sphere: 'Smooth sphere, no terrain data' };
   function loadScript(src) {
     return new Promise(function (res, rej) {
       var s = document.createElement('script'); s.src = src; s.async = true;
@@ -249,12 +269,18 @@
   }
 
   /* ================= lists and pins ================= */
+  // Analysed sites first, ranked among themselves; reference points (past landings, pins) after them with their own numbering.
   function rank() {
     var k = landK(), m = M();
-    ranked = allSites().map(function (s) { return { site: s, st: status(s, k, m), was: state.slip ? status(s, planK(), m) : null }; })
-      .sort(function (a, b) { return (b.st.ok - a.st.ok) || (b.st.both - a.st.both) || (a.site.name < b.site.name ? -1 : 1); });
-    var n = 0;
-    ranked.forEach(function (e) { e.rank = e.st.ok ? ++n : 0; });
+    ranked = allSites().map(function (s) { return { site: s, tier: tier(s), st: status(s, k, m), was: state.slip ? status(s, planK(), m) : null }; })
+      .sort(function (a, b) { return (a.tier - b.tier) || (b.st.ok - a.st.ok) || (b.st.both - a.st.both) || (a.site.name < b.site.name ? -1 : 1); });
+    var n = [0, 0];
+    ranked.forEach(function (e) { e.rank = e.st.ok ? ++n[e.tier] : 0; });
+  }
+  function groupRow(t, list) {
+    var good = list.filter(function (e) { return e.st.ok; }).length;
+    return html('li', 'grp', t ? 'Reference points · ' + good + ' of ' + list.length + ' available · past landings and pins, no analysed terrain'
+      : 'Analysed sites · ' + good + ' of ' + list.length + ' available');
   }
   function isSel(s) { return state.sel.indexOf(s) >= 0; }
   function activate(s) { if (state.picking) toggleSel(s); else select(s); }
@@ -268,7 +294,8 @@
     b.appendChild(html('span', 'why', e.st.why));
     if (e.was && e.was.ok && !e.st.ok) b.appendChild(html('span', 'was', 'Worked on the planned date'));
     b.appendChild(html('small', '', (s.note ? s.note + ' · ' : '') + coord(s.lat, s.lon)));
-    b.appendChild(html('span', 'score', pct(e.st.share) + ' of the stay · ' + TERRAIN_TEXT[terrainOf(s)].toLowerCase()));
+    b.appendChild(html('span', 'ter', terrainLabel(s)));
+    b.appendChild(html('span', 'score', pct(e.st.share) + ' of the stay'));
     b.setAttribute('aria-label', s.name + ', ' + (e.st.ok ? 'available' : 'not available') + (state.picking ? (isSel(s) ? ', selected' : ', not selected') : ''));
     b.addEventListener('click', function () { activate(s); });
     li.appendChild(b);
@@ -281,8 +308,10 @@
     return li;
   }
   function renderList() {
-    var good = ranked.filter(function (e) { return e.st.ok; }).length;
-    $('sideSub').textContent = good + ' of ' + ranked.length + ' available for landing on ' + dayText(landK(), true) + ', ' + state.days + '-day stay.';
+    var an = ranked.filter(function (e) { return !e.tier; }), rf = ranked.filter(function (e) { return e.tier; });
+    var good = an.filter(function (e) { return e.st.ok; }).length, goodR = rf.filter(function (e) { return e.st.ok; }).length;
+    $('sideSub').textContent = good + ' of ' + an.length + ' analysed sites available for landing on ' + dayText(landK(), true) + ', ' + state.days + '-day stay.' +
+      (rf.length ? ' Reference points: ' + goodR + ' of ' + rf.length + '.' : '');
     var counts = { all: ranked.length, pole: 0, past: 0, pin: 0 };
     ranked.forEach(function (e) { counts[e.site.group]++; });
     counts.pole += counts.pin; counts.past += counts.pin;
@@ -296,7 +325,12 @@
     a.classList.toggle('picking', state.picking);
     $('side').classList.toggle('picking', state.picking);
     var shown = ranked.filter(function (e) { return state.filter === 'all' || e.site.group === state.filter || e.site.group === 'pin'; });   // your pins always show
-    shown.forEach(function (e) { a.appendChild(listItem(e)); });
+    [0, 1].forEach(function (t) {
+      var part = shown.filter(function (e) { return e.tier === t; });
+      if (!part.length) return;
+      a.appendChild(groupRow(t, part));
+      part.forEach(function (e) { a.appendChild(listItem(e)); });
+    });
     if (!shown.length) a.appendChild(html('li', 'empty', state.filter === 'pin' ? 'No pins yet. Add coordinates below, or double-click the Moon.' : 'No sites.'));
   }
   function renderPins() {
@@ -304,8 +338,8 @@
     ranked.slice().reverse().forEach(function (e) {
       var s = e.site, on = state.site === s, small = s.group === 'past';
       var b = html('button', 'pin' + (e.st.ok ? '' : ' bad') + (small ? ' small' : '') + (s.group === 'pin' ? ' user' : '') +
-        (s.group === 'pole' && e.rank && e.rank <= 3 ? ' top' : '') + (on ? ' on' : '') + (isSel(s) ? ' sel' : ''), small ? '' : e.rank ? String(e.rank) : '!');
-      b.type = 'button'; b.style.zIndex = String(on ? 100 : (e.st.ok ? 60 : 20) - (small ? 10 : 0));
+        (s.group === 'pole' && e.rank && e.rank <= 3 ? ' top' : '') + (on ? ' on' : '') + (isSel(s) ? ' sel' : ''), e.tier ? '' : e.rank ? String(e.rank) : '!');   // numbers: analysed sites only
+      b.type = 'button'; b.style.zIndex = String(on ? 100 : (e.st.ok ? 60 : 20) - (small ? 10 : 0) - (e.tier ? 5 : 0));
       b.setAttribute('aria-label', s.name + (e.st.ok ? ', available' : ', not available'));
       b.appendChild(html('span', 'lbl', s.name));
       b.addEventListener('click', function (ev) { ev.stopPropagation(); activate(s); });
@@ -357,7 +391,12 @@
     var t = $('rankTable'); clear(t);
     var head = html('tr'); ['Site', 'Both', 'Share', 'Next window'].forEach(function (h) { head.appendChild(html('th', '', h)); });
     t.appendChild(head);
+    var lastTier = -1;
     ranked.forEach(function (r) {
+      if (r.tier !== lastTier) {
+        lastTier = r.tier;
+        var gr = html('tr', 'grp'), gth = html('th', '', r.tier ? 'Reference points (no analysed terrain)' : 'Analysed sites'); gth.colSpan = 4; gr.appendChild(gth); t.appendChild(gr);
+      }
       var tr = html('tr', r.st.ok ? '' : 'no'), nw = r.st.ok ? 'Now' : nextWindow(r.site, k, M());
       [(r.rank ? r.rank + '. ' : '') + r.site.name, hrs(r.st.both), pct(r.st.share), nw === 'Now' ? nw : nw == null ? 'None' : '+' + nw + ' d']
         .forEach(function (c) { tr.appendChild(html('td', '', String(c))); });
@@ -405,8 +444,8 @@
     var k = landK(), m = M();
     box.appendChild(html('h3', '', 'Two ways to recover'));
     box.appendChild(html('h4', '', 'Switch site, keep ' + dayText(k)));
-    var alts = ranked.filter(function (r) { return r.st.ok && r.site !== site; }).slice(0, 3);
-    if (!alts.length) box.appendChild(html('p', '', 'No site in the list works on this date.'));
+    var alts = ranked.filter(function (r) { return r.st.ok && !r.tier && r.site !== site; }).slice(0, 3);   // analysed sites only
+    if (!alts.length) box.appendChild(html('p', '', 'No analysed site works on this date.'));
     alts.forEach(function (r) {
       var b = html('button', 'opt'); b.type = 'button';
       b.appendChild(html('b', '', r.site.name)); b.appendChild(html('small', '', hrs(r.st.both) + ' of ' + hrs(r.st.total) + ' with Sun and Earth'));
@@ -491,6 +530,8 @@
     var svg = $('pano'), L = 54, R = 990, T = 12, B = 258;
     var k0 = landK(), k1 = Math.min(N - 1, k0 + M()), s = series(site), v = vis(site);
     var key = site.id + '|' + k0 + '|' + k1 + '|' + site.visKey + '|' + set.mast + '|' + state.showEarth;
+    $('panoCap').textContent = 'Horizon from the site, unrolled 360° · ' + terrainLabel(site);
+    $('panoDash').textContent = terrainOf(site) === 'sphere' ? 'below the horizon' : 'behind terrain';
     if (key !== panoKey) {
       panoKey = key; clear(svg);
       var sky = [], skyMin = 90, skyMax = -90, a, i, k;
@@ -562,10 +603,12 @@
     box.appendChild(html('h3', '', 'Why it works this way'));
     function para(parts) { var p = html('p'); parts.forEach(function (x) { p.appendChild(typeof x === 'string' ? document.createTextNode(x) : x); }); box.appendChild(p); }
     var B = function (t) { return html('b', '', t); };
+    var sphere = terrainOf(site) === 'sphere';
     if (Math.abs(site.lat) >= 80) {
       var ridge = Math.round(10000 * Math.tan(Math.max(0.05, maxA) * RAD));
       para(['Near the pole the Sun does not rise and set each day: it circles the horizon once every 29.5 days. During this stay it never climbs above ',
-        B(deg1(maxA)), '. A ridge just ', B(ridge.toLocaleString('en-US') + ' m'), ' high, 10 km away, is enough to hide it, so local terrain decides when there is power.']);
+        B(deg1(maxA)), '.'].concat(sphere ? [' No terrain data is used for this point: the verdict assumes a smooth-sphere horizon.']
+        : [' A ridge just ', B(ridge.toLocaleString('en-US') + ' m'), ' high, 10 km away, is enough to hide it, so local terrain decides when there is power.']));
       para(['The Sun moves about ', B('12° of azimuth per day'), ' around the sky. A slip of a few days points it at a different stretch of skyline, which is why a short delay can switch a site from available to not available.']);
     } else {
       para(['Here the Sun rises and sets once per lunar day: about ', B('14.8 Earth days of light'), ', then 14.8 days of night, when the surface drops to about −170 °C. During this stay the Sun reaches ',
@@ -575,7 +618,8 @@
     for (k = 0; k < N; k += 6) { if (s.earthAlt[k] > Terrain.dip(set.mast)) earthEver = true; else earthAlways = false; }
     if (!earthEver) para(['Earth never rises here. The Moon keeps one face towards Earth, so ', B('far-side sites need a relay satellite'), ' to talk to Earth.']);
     else if (earthAlways && eMin > 5) para(['Earth hangs almost still in the sky, moving only a few degrees as the Moon wobbles (libration). It stays between ', B(deg1(eMin)), ' and ', B(deg1(eMax)), ' during this stay.']);
-    else para(['Earth sits near the horizon here and drifts by several degrees as the Moon wobbles (libration): between ', B(deg1(eMin)), ' and ', B(deg1(eMax)), ' during this stay, so terrain can cut the radio link for days at a time.']);
+    else para(['Earth sits near the horizon here and drifts by several degrees as the Moon wobbles (libration): between ', B(deg1(eMin)), ' and ', B(deg1(eMax)),
+      sphere ? ' during this stay. No terrain data is used for this point.' : ' during this stay, so terrain can cut the radio link for days at a time.']);
   }
   function tile(box, cls, k, v, sub) {
     var t = html('div', 'tile' + (cls ? ' ' + cls : ''));
@@ -594,7 +638,7 @@
       ['Earth elevation', deg(s.earthAlt[k])], ['Earth azimuth', s.earthAz[k].toFixed(1) + '°'],
       ['Skyline toward Earth', deg(v.earthSky[k])], ['Earth above the skyline by', deg(s.earthAlt[k] - v.earthSky[k])],
       ['Sun and Earth diameters', D.bodies.sun.diam_deg[k].toFixed(3) + '°, ' + D.bodies.earth.diam_deg[k].toFixed(3) + '°'],
-      ['Mast height', set.mast + ' m'], ['Terrain', TERRAIN_TEXT[t]]
+      ['Mast height', set.mast + ' m'], ['Terrain', cap(terrainLabel(site))]
     ];
     if (src) {
       data.push(['Coordinate source', src.coord_source.ref]);
@@ -602,7 +646,9 @@
     }
     rows($('techTable'), data);
     $('siteNote').textContent = (src && src.coord_source.note ? src.coord_source.note + ' ' : '') +
-      (src ? '' : 'This point is not in the data file. Its Sun and Earth angles are derived here from the first analysed site\'s angles' + (t === 'coarse' ? ', and its skyline from a 720 m grid of the LOLA 75° S elevation model.' : ', and it has no terrain data: the horizon is a smooth sphere.') + ' ') +
+      (src ? '' : 'This point is not in the data file. Its Sun and Earth angles are derived here from the first analysed site\'s angles' +
+        (t === 'coarse' ? ', and its skyline from a 720 m grid of the LOLA 75° S elevation model (rays up to 150 km' + (complete(site) ? ').' : '; rays that reach the grid edge stop there, so the skyline is a lower bound in those directions).')
+        : ', and it has no terrain data: the horizon is a smooth sphere.') + ' ') +
       'The Sun counts as up when at least ' + Math.round(set.sun * 100) + '% of its disc clears the skyline, Earth when its centre is more than ' + set.earth + '° above it.';
     var svg = $('elChart'); clear(svg);
     var a0 = landK(), a1 = Math.min(N - 1, a0 + M()), m = Math.max(1, a1 - a0), Lx = 38, Rt = 470, T = 10, Bt = 195, i;
@@ -637,10 +683,13 @@
     var site = state.site, k0 = landK(), m = M(), st = status(site, k0, m), k = curK(), v = vis(site), s = series(site);
     $('view3d').setAttribute('aria-pressed', String(state.view === '3d')); $('view2d').setAttribute('aria-pressed', String(state.view === '2d'));
     $('siteName').textContent = site.name;
-    $('siteMeta').textContent = GROUP_TEXT[site.group] + (site.note && site.group !== 'pole' ? ' · ' + site.note : site.src && site.src.pgda_site ? ' · PGDA ' + site.src.pgda_site : '') + ' · ' + coord(site.lat, site.lon);
+    var ter = terrainOf(site), label = terrainLabel(site);
+    $('siteMeta').textContent = GROUP_TEXT[site.group] + (site.note && site.group !== 'pole' ? ' · ' + site.note : site.src && site.src.pgda_site ? ' · PGDA ' + site.src.pgda_site : '') + ' · ' + coord(site.lat, site.lon) + ' · ' + label;
     var badge = $('badge');
     badge.className = 'badge' + (st.ok ? '' : ' no');
-    badge.textContent = (st.ok ? 'Available' : 'Not available') + ' for landing on ' + dayText(k0, true);
+    badge.textContent = (st.ok ? 'Available' : 'Not available') + ' for landing on ' + dayText(k0, true) + ' · ' + label;
+    $('surfNote').textContent = ter === 'sphere' ? 'No terrain data: smooth-sphere horizon. Landscape is illustrative.'
+      : cap(label) + (ter === 'coarse' ? '. Skyline from the LOLA 120 m model averaged to 720 m; finer landscape detail is illustrative.' : '.');
     var line = '';
     if (state.slip) {
       var was = status(site, planK(), m);
@@ -662,8 +711,9 @@
     var dark = longestRun(v.sun, k0, k0 + st.total, 0);
     var tb = $('tiles'); clear(tb);
     var sc = s.sunAlt[k] - v.sunSky[k], ec = s.earthAlt[k] - v.earthSky[k];
-    tile(tb, 'sun', 'Sun elevation', deg1(s.sunAlt[k]), (sc >= 0 ? deg1(sc) + ' above' : deg1(-sc) + ' below') + ' the skyline');
-    tile(tb, 'earth', 'Earth elevation', deg1(s.earthAlt[k]), (ec >= 0 ? deg1(ec) + ' above' : deg1(-ec) + ' below') + ' the skyline');
+    var sky = ter === 'sphere' ? ' the smooth-sphere horizon' : ter === 'coarse' ? ' the coarse skyline' : ' the terrain skyline';
+    tile(tb, 'sun', 'Sun elevation', deg1(s.sunAlt[k]), (sc >= 0 ? deg1(sc) + ' above' : deg1(-sc) + ' below') + sky);
+    tile(tb, 'earth', 'Earth elevation', deg1(s.earthAlt[k]), (ec >= 0 ? deg1(ec) + ' above' : deg1(-ec) + ' below') + sky);
     tile(tb, 'sun', v.sun[k] ? 'Sunset in' : 'Sunrise in', ds == null ? '—' : dur(ds), v.sun[k] ? 'Power until then' : 'No solar power until then');
     tile(tb, 'earth', v.earth[k] ? 'Earthset in' : 'Earthrise in', de == null ? '—' : dur(de), v.earth[k] ? 'Direct link until then' : 'No direct link until then');
     tile(tb, '', 'Sun + Earth', hrs(st.both), pct(st.share) + ' of the stay');
@@ -688,22 +738,22 @@
     var ds = v.sun[k0] ? flip(v.sun, k0) : null, de = v.earth[k0] ? flip(v.earth, k0) : null;
     return { site: site, st: st, sunP: sunH / st.total, earthP: earthH / st.total, dark: longestRun(v.sun, k0, end, 0), gap: longestRun(v.earth, k0, end, 0),
       sun0: s.sunAlt[k0], earth0: s.earthAlt[k0], maxSun: maxSun, sunset: v.sun[k0] ? (ds == null ? Infinity : ds) : 0, earthset: v.earth[k0] ? (de == null ? Infinity : de) : 0,
-      next: st.ok ? 0 : nextWindow(site, k0, m), terrain: terrainOf(site) };
+      next: st.ok ? 0 : nextWindow(site, k0, m), terrain: terrainOf(site), tier: tier(site) };
   }
-  function better(a, b) { return (b.st.ok - a.st.ok) || (b.st.share - a.st.share) || (a.dark - b.dark) || (b.sunP - a.sunP) || (b.earthP - a.earthP); }
+  function better(a, b) { return (a.tier - b.tier) || (b.st.ok - a.st.ok) || (b.st.share - a.st.share) || (a.dark - b.dark) || (b.sunP - a.sunP) || (b.earthP - a.earthP); }   // analysed sites before reference points
   function renderCompare() {
     var panel = $('comparePanel');
     panel.hidden = !state.cmpOpen;
     if (!state.cmpOpen) return;
-    var ev = state.sel.map(evaluate), order = ev.slice().sort(better), best = order[0], second = order[1];
+    var ev = state.sel.map(evaluate).sort(function (a, b) { return a.tier - b.tier; }), order = ev.slice().sort(better), best = order[0], second = order[1];   // columns: analysed first
     $('cmpSub').textContent = 'Landing ' + dayText(landK(), true) + ', ' + state.days + '-day stay, ' + set.mast + ' m mast. Change the date, slip or stay at the top and this updates.';
     var win = $('cmpWin'); clear(win);
     win.className = 'cmp-win' + (best.st.ok ? '' : ' none');
     if (best.st.ok) {
-      win.appendChild(html('h3', '', 'Better landing site: ' + best.site.name));
+      win.appendChild(html('h3', '', (best.tier ? 'Better reference point: ' : 'Better landing site: ') + best.site.name));
       var p = html('p');
       p.appendChild(html('b', '', best.site.name));
-      var why = ' has Sun and Earth together for ' + hrs(best.st.both) + ' (' + pct(best.st.share) + ') of the stay';
+      var why = (best.tier ? ' (' + terrainLabel(best.site) + ')' : '') + ' has Sun and Earth together for ' + hrs(best.st.both) + ' (' + pct(best.st.share) + ') of the stay';
       if (second) {
         why += second.st.ok ? ', against ' + hrs(second.st.both) + ' (' + pct(second.st.share) + ') at ' + second.site.name : ', while ' + second.site.name + ' is not available (' + second.st.why.toLowerCase() + ')';
         if (best.dark < second.dark) why += '. Its longest dark stretch is ' + (best.dark ? dur(best.dark) : 'zero') + ' against ' + dur(second.dark);
@@ -721,6 +771,7 @@
     ev.forEach(function (e) {
       var th = html('th', e === best && best.st.ok ? 'win' : '', e.site.name);
       th.appendChild(html('small', '', GROUP_TEXT[e.site.group] + ' · ' + coord(e.site.lat, e.site.lon)));
+      th.appendChild(html('small', '', terrainLabel(e.site)));
       hr.appendChild(th);
     });
     thead.appendChild(hr); t.appendChild(thead);
@@ -750,7 +801,7 @@
     row('Sunset after landing', function (e) { return e.sunset; }, function (x) { return x === 0 ? 'Sun down at landing' : x === Infinity ? 'Not before the data ends' : 'in ' + dur(x); }, 'max');
     row('Earthset after landing', function (e) { return e.earthset; }, function (x) { return x === 0 ? 'Earth down at landing' : x === Infinity ? 'Not before the data ends' : 'in ' + dur(x); }, 'max');
     row('Next available landing', function (e) { return e.next; }, function (x) { return x === 0 ? 'This date' : x == null ? 'None in the data' : '+' + x + ' d, ' + dayText(landK() + x * SPD); }, 'min');
-    row('Skyline data', function (e) { return e.terrain; }, function (x) { return TERRAIN_TEXT[x]; });
+    row('Skyline data', function (e) { return e; }, function (e) { return cap(terrainLabel(e.site)); });
     row('Timeline (stay)', function (e) { return e; }, function (e) {
       var svg = el('svg', { viewBox: '0 0 300 30', preserveAspectRatio: 'none' });
       stripSvg(svg, vis(e.site), landK(), Math.max(1, e.st.total), 300, 30, null, null);
@@ -798,7 +849,8 @@
       return { sun: { alt: L(s.sunAlt), az: azLerp(s.sunAz[i], s.sunAz[j], f), diam: L(D.bodies.sun.diam_deg) },
                earth: { alt: L(s.earthAlt), az: azLerp(s.earthAz[i], s.earthAz[j], f), diam: L(D.bodies.earth.diam_deg) } };
     },
-    skyline: function (az) { return surfSite && horizonArr(surfSite) ? skyline(surfSite, az) : null; },
+    skyline: function (az) { return surfSite ? skyline(surfSite, az) : null; },          // the verdict's horizon, also for sphere points
+    terrain: function () { return surfSite ? terrainOf(surfSite) : null; },             // 'sphere': labels say "below the horizon", landscape is not conformed
     height: function (lat, lon) { return TER && lat < -75 ? Terrain.heightAt(TER, lat, lon) : null; }
   });
   if (hasSurface && SURF.setOption) { for (var so in sopt) SURF.setOption(so, sopt[so]); SURF.setOption('earth', state.showEarth); }
@@ -884,13 +936,14 @@
     document.documentElement.style.setProperty('--info-w', state.infoW + 'px');
   }
   function refresh() {
+    if (!started) return;                                    // the first render waits for the terrain state (loadTerrain)
     document.body.classList.toggle('tech', state.tech);
     state.cur = Math.max(0, Math.min(spanK(), state.cur));
     layout(); fields(); save();
     rank(); lightGlobe(); renderList(); renderPins(); renderMoonTech(); placeDisplay(); renderSite(); renderCmpBar(); renderCompare();
     starFrame();
   }
-  function tick() { lightGlobe(); renderMarks(); renderSite(); }
+  function tick() { if (started) { lightGlobe(); renderMarks(); renderSite(); } }
   function stop() {
     if (playing) { clearInterval(playing); playing = null; $('play').textContent = 'Play'; }
     if (hasSurface) SURF.setTracking(false);
@@ -937,6 +990,7 @@
   }
   // A permanent pin (until the page is reloaded) at the given coordinates.
   function addPin(lat, lon) {
+    if (!started) return;
     lat = Math.max(-90, Math.min(90, lat)); lon = ((lon + 540) % 360) - 180;
     if (lon === 180) lon = -180;
     pinSeq++;
@@ -1122,20 +1176,24 @@
     starDay = day;
     SURF.frameAt(ms(k)).then(function (m) { if (m) Globe.set({ starM: m }); }).catch(function () {});
   }
+  // The coarse grid is decided once, before anything is ranked: 'ready', or 'unavailable' (no DecompressionStream, load
+  // error, or more than 20 s). Points south of 75 S are never shown with a sphere verdict that a late grid would change.
   function loadTerrain() {
-    loadScript('web/data/terrain-lowres.js').then(function () {
+    if (!window.DecompressionStream) { terState = 'unavailable'; return Promise.resolve(); }
+    var late = new Promise(function (res) { setTimeout(res, 20000); });
+    var load = loadScript('web/data/terrain-lowres.js').then(function () {
       var t = window.TERRAIN_LOWRES;
-      if (!t || !window.DecompressionStream) return;
+      if (!t) throw new Error('no grid');
       var bin = atob(t.deflate_b64), bytes = new Uint8Array(bin.length);
       for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      return new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate'))).arrayBuffer().then(function (buf) {
-        TER = Terrain.fromDeltas(t.n, t.px_m, t.quant_m, new Uint8Array(buf));
-        PAST.concat(PINS).forEach(function (s) { s.hz = null; s.vis = null; s.ser = null; });
-        panoKey = ''; calKey = '';
-        refresh();
-        if (hasSurface && state.site && state.site === surfSite && state.site.group !== 'pole' && state.view === '3d') SURF.rebuild();   // finer polar terrain + skyline now known
-      });
+      return new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate'))).arrayBuffer();
+    }).then(function (buf) {
+      var t = window.TERRAIN_LOWRES;
+      if (started) return;                                   // arrived after the deadline: ignored, the verdicts stay as shown
+      TER = Terrain.fromDeltas(t.n, t.px_m, t.quant_m, new Uint8Array(buf));
+      terState = 'ready';
     }).catch(function () {});
+    return Promise.race([load, late]).then(function () { if (terState === 'loading') terState = 'unavailable'; });
   }
 
   /* ================= setup wizard =================
@@ -1177,8 +1235,8 @@
   function wizEval() {
     var k = wizLand(), m = wiz.days * SPD;
     return withDraft(function () {
-      return wizSites().map(function (s) { return { site: s, st: status(s, k, m) }; })
-        .sort(function (a, b) { return (b.st.ok - a.st.ok) || (b.st.both - a.st.both); });
+      return wizSites().map(function (s) { return { site: s, tier: tier(s), st: status(s, k, m) }; })
+        .sort(function (a, b) { return (a.tier - b.tier) || (b.st.ok - a.st.ok) || (b.st.both - a.st.both); });
     });
   }
   function wfield(label, help, control) {
@@ -1285,8 +1343,9 @@
       });
       box.appendChild(pf);
       box.appendChild(html('p', 'wh', 'Optional: tick 2–6 sites to compare side by side when you finish. Verdicts use the settings from the previous steps.'));
-      var ev = wizEval(), ul = html('ul', 'wlist');
+      var ev = wizEval(), ul = html('ul', 'wlist'), lastTier = -1;
       ev.forEach(function (e) {
+        if (e.tier !== lastTier) { lastTier = e.tier; ul.appendChild(html('li', 'grp', e.tier ? 'Reference points (past landings and pins, no analysed terrain)' : 'Analysed sites')); }
         var li = html('li'), lab = html('label'), cb = html('input'); cb.type = 'checkbox';
         cb.checked = wiz.sel.indexOf(e.site) >= 0;
         cb.disabled = !cb.checked && wiz.sel.length >= 6;
@@ -1298,7 +1357,8 @@
           renderWizard(); $('wizBody').scrollTop = top;
           var again = $('wizBody').querySelector('[data-id="' + e.site.id + '"]'); if (again) again.focus();
         });
-        lab.appendChild(cb); lab.appendChild(html('span', 'nm', e.site.name));
+        var nm = html('span', 'nm', e.site.name); nm.appendChild(html('small', 'ter', terrainLabel(e.site)));
+        lab.appendChild(cb); lab.appendChild(nm);
         lab.appendChild(html('span', 'tag', GROUP_TEXT[e.site.group]));
         lab.appendChild(html('span', e.st.ok ? 'v ok' : 'v no', e.st.ok ? 'Available' : 'Not available'));
         li.appendChild(lab); ul.appendChild(li);
@@ -1307,7 +1367,8 @@
       box.appendChild(html('p', 'wh', wiz.sel.length + ' selected for comparison.'));
     } else {
       box.appendChild(html('h3', 'wq', 'Review'));
-      var ev2 = wizEval(), good = ev2.filter(function (e) { return e.st.ok; });
+      var ev2 = wizEval(), an = ev2.filter(function (e) { return !e.tier; }), rf = ev2.filter(function (e) { return e.tier; });
+      var goodA = an.filter(function (e) { return e.st.ok; }), goodR = rf.filter(function (e) { return e.st.ok; }), good = an.length ? goodA : goodR;   // the group that leads
       var pre = PRESETS.filter(function (p) { return p.id === wiz.preset; })[0];
       var dl = html('dl', 'wreview');
       [['Mission', pre ? pre.name : 'Custom'],
@@ -1318,12 +1379,14 @@
       ].forEach(function (r) { dl.appendChild(html('dt', '', r[0])); dl.appendChild(html('dd', '', r[1])); });
       box.appendChild(dl);
       var pv = html('div', 'wpreview' + (good.length ? '' : ' none'));
-      pv.appendChild(html('b', '', good.length + ' of ' + ev2.length + ' sites are available with these settings.'));
-      pv.appendChild(html('span', '', good.length ? 'Best: ' + good.slice(0, 3).map(function (e) { return e.site.name + ' (' + pct(e.st.share) + ' of the stay)'; }).join(', ') + '.'
+      pv.appendChild(html('b', '', an.length ? goodA.length + ' of ' + an.length + ' analysed sites are available with these settings.'
+        : goodR.length + ' of ' + rf.length + ' reference points are available with these settings (no analysed terrain).'));
+      pv.appendChild(html('span', '', good.length ? 'Best: ' + good.slice(0, 3).map(function (e) { return e.site.name + ' (' + pct(e.st.share) + ' of the stay' + (e.tier ? ', ' + terrainLabel(e.site) : '') + ')'; }).join(', ') + '.'
         : 'Try a later date, a shorter stay or looser rules (go back with the steps above).'));
+      if (an.length && rf.length) pv.appendChild(html('span', '', 'Reference points: ' + goodR.length + ' of ' + rf.length + ' available (smooth sphere or coarse terrain, ranked separately).'));
       box.appendChild(pv);
       box.appendChild(html('p', 'wl', 'When you finish'));
-      var opts = [['list', 'Show the ranked site list'], ['best', good.length ? 'Open the best site: ' + good[0].site.name : null],
+      var opts = [['list', 'Show the ranked site list'], ['best', good.length ? 'Open the best site: ' + good[0].site.name + (good[0].tier ? ' (' + terrainLabel(good[0].site) + ')' : '') : null],
                   ['compare', wiz.sel.length >= 2 ? 'Compare the ' + wiz.sel.length + ' selected sites' : null]].filter(function (o) { return o[1]; });
       if (!opts.some(function (o) { return o[0] === wiz.after; })) wiz.after = 'list';
       var og = html('div', 'wafter'); og.setAttribute('role', 'radiogroup'); og.setAttribute('aria-label', 'When you finish');
@@ -1401,10 +1464,16 @@
   });
   $('noGl').hidden = ok;
   if (ok) { loadSurface(); loadStars(); } else globeReady();
-  loadTerrain();
   if (window.ResizeObserver) new ResizeObserver(function () { Globe.resize(); }).observe($('globeWrap'));
   window.addEventListener('resize', function () { Globe.resize(); });
-  refresh();
-  try { if (!localStorage.getItem('lunarNavWizard')) openWizard(); } catch (e) {}
-  window.NAV_DEBUG = { status: status, sites: allSites, series: series, state: state, set: set, select: select, addPin: addPin, setView: setView, evaluate: evaluate, openWizard: openWizard };
+  $('sideSub').textContent = 'Loading terrain data (LOLA 720 m grid)…';
+  loadTerrain().then(function () {                           // first render only once the coarse-terrain state is final
+    started = true;
+    $('stTerrain').textContent = terState === 'ready' ? 'Coarse terrain: LOLA 720 m grid loaded' : 'Coarse terrain unavailable: reference points south of 75° S use a smooth sphere';
+    refresh();
+    try { if (!localStorage.getItem('lunarNavWizard')) openWizard(); } catch (e) {}
+  });
+  window.NAV_DEBUG = { status: status, sites: allSites, series: series, state: state, set: set, select: select, addPin: addPin, setView: setView, evaluate: evaluate, openWizard: openWizard,
+    setMission: setMission, nextWindow: nextWindow, vis: vis, skyline: skyline, terrainOf: terrainOf, terrainLabel: terrainLabel, tier: tier,
+    ranked: function () { return ranked; }, started: function () { return started; }, terState: function () { return terState; } };
 })();
