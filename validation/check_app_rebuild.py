@@ -1,3 +1,4 @@
+# Written with AI assistance (Claude Code), reviewed by the team.
 """How accurate is app.js's "rebuild Sun/Earth from sites[0]" shortcut?
 
     python validation/check_app_rebuild.py

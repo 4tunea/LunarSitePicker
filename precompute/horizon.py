@@ -1,3 +1,4 @@
+# Written with AI assistance (Claude Code), reviewed by the team.
 """Terrain horizon (skyline) from LOLA polar stereographic DEMs.
 
     from precompute.horizon import PolarDem, horizon

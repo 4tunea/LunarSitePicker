@@ -1,3 +1,4 @@
+# Written with AI assistance (Claude Code), reviewed by the team.
 """Periods when the Sun is above the horizontal but hidden by terrain, with the blocking feature.
 
     .venv/Scripts/python.exe -m precompute.sun_behind_terrain --site connecting-ridge-lower --mast 2 [--out docs/x.md]

@@ -1,3 +1,4 @@
+# Written with AI assistance (Claude Code), reviewed by the team.
 """Site rules (team decisions 2026-11-14): where exactly each analysed site is.
 
     .venv/Scripts/python.exe -m precompute.pick_sites           # report only

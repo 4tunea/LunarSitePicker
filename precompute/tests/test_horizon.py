@@ -1,3 +1,4 @@
+# Written with AI assistance (Claude Code), reviewed by the team.
 """Checks for precompute/horizon.py. Run:  .venv/Scripts/python.exe -m pytest -s precompute/tests
 
 (a) flat sphere gives the analytic dip -acos(R/(R+h)) for both masts;

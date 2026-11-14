@@ -1,3 +1,4 @@
+# Written with AI assistance (Claude Code), reviewed by the team.
 """Apparent Sun and Earth positions from a point on the lunar surface (Skyfield, the reference).
 
     from precompute.ephemeris import Sky, hourly_times

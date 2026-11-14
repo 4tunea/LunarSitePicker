@@ -1,3 +1,4 @@
+# Written with AI assistance (Claude Code), reviewed by the team.
 """Compare precompute/ephemeris.py (Skyfield) with JPL Horizons for an observer on the Moon.
 
     .venv/Scripts/python.exe validation/validate_horizons.py            # site = first site of web/data/navigator-data.json

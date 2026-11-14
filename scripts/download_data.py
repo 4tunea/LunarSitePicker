@@ -1,3 +1,4 @@
+# Written with AI assistance (Claude Code), reviewed by the team.
 """Download the raw inputs for precompute/ into data/ (gitignored). Downloads only.
 
     python scripts/download_data.py              # kernels + LDEM_75S_120M (.IMG and .LBL) + 5 m tiles

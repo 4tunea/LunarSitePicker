@@ -1,3 +1,4 @@
+# Written with AI assistance (Claude Code), reviewed by the team.
 """Minimal PDS3 label reader for the LOLA gridded products (LDEM_75S_120M.LBL and friends).
 
 Only what the pipeline needs: KEY = value pairs, OBJECT ... END_OBJECT groups, units in

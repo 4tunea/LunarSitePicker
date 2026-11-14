@@ -1,3 +1,4 @@
+# Written with AI assistance (Claude Code), reviewed by the team.
 """The "launch slipped" table: which landing days at the hero site stop working after a slip, and why.
 
     .venv/Scripts/python.exe -m precompute.slip_table [--mast 2] [--shift-days 21] [--site connecting-ridge]

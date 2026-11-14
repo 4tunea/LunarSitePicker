@@ -1,3 +1,4 @@
+# Written with AI assistance (Claude Code), reviewed by the team.
 """Cross-check precompute/ephemeris.py against the surface view's ephemeris (web/moonsky/ephem/<year>.js).
 
     python validation/compare_moonsky.py [--n 10] [--seed 42]

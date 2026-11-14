@@ -1,3 +1,4 @@
+# Written with AI assistance (Claude Code), reviewed by the team.
 """Landing windows from the real data file, with the app's rules (docs/data-contract.md section 7).
 
     .venv/Scripts/python.exe -m precompute.analyze_windows [web/data/navigator-data.json] [--site connecting-ridge]

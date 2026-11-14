@@ -1,3 +1,4 @@
+# Written with AI assistance (Claude Code), reviewed by the team.
 """Exact Earthrise / Earthset (and sunrise / sunset) times at a site around given dates.
 
     .venv/Scripts/python.exe -m precompute.earth_events --site connecting-ridge --mast 2 --dates 2027-08-19 2027-09-09

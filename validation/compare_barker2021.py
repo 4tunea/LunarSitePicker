@@ -1,3 +1,4 @@
+# Written with AI assistance (Claude Code), reviewed by the team.
 """Compare our Site01 (Connecting Ridge) illumination with Barker et al. (2021), Table 2.
 
     .venv/Scripts/python.exe validation/compare_barker2021.py
