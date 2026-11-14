@@ -99,7 +99,7 @@ from `app.js`.
     "sun":   { "diam_deg": [count numbers] },    // [app]
     "earth": { "diam_deg": [count numbers] }     // [app]
   },
-  "sites": [ Site, ... ]              // [app] the 5 analysed sites, fixed order (§10)
+  "sites": [ Site, ... ]              // [app] the 6 analysed sites, fixed order (§10)
 }
 ```
 
@@ -183,14 +183,14 @@ The frontend reads these from `bodies.*.diam_deg[k]`. **It must not hard-code th
 - **Plain JSON number arrays.** No base64 or binary, so it can be debugged by eye.
 - Alt/az and horizon values are rounded to **2 decimals** (0.01°; max quantisation error
   0.005°, well below horizon/DEM uncertainty). Diameters are rounded to **3 decimals**.
-- Measured on the first real file (2026-11-14, 11664 h, 720 bins × 2 masts, 5 sites):
+- Measured on the real file (2026-11-14, 11664 h, 720 bins × 2 masts, 6 sites):
 
   | | Size |
   |---|---|
   | One site (Connecting Ridge alone) | 0.43 MB |
-  | Total, `navigator-data.json` | 1.57 MB |
-  | Total, `navigator-data.js` | 1.57 MB |
-  | Gzipped (as GitHub Pages / Vercel serve it) | 0.35 MB |
+  | Total, `navigator-data.json` | 1.87 MB |
+  | Total, `navigator-data.js` | 1.87 MB |
+  | Gzipped (as GitHub Pages / Vercel serve it) | 0.42 MB |
 - This is under the ~3 MB budget, so no reduction is needed. If we add sites or a second
   year, these are the options, in order:
   1. Drop to 1 decimal for azimuth beyond ±30 days of the demo dates (≈ −10%).
@@ -310,23 +310,27 @@ fake fixture is `web/data/navigator-data.fake.js` (`"fake": true`, written by
 
 ## 10. Site list (fixed order)
 
-| # | id | name | PGDA LOLA_5mpp tile | Coordinates (highest point of the 5 m tile) | Ground (5 m tile) |
-|---|---|---|---|---|---|
-| 0 | `connecting-ridge` | Connecting Ridge | Site01 (16 × 16 km) | −89.43891, −137.14357 | 1959.5 m |
-| 1 | `shackleton-rim` | Shackleton Rim | Site04 (16 × 16 km) | −89.52911, −140.94069 (on the tile's west edge) | 1805.1 m |
-| 2 | `malapert-massif` | Malapert Massif | Site23 (21 × 21 km) | −85.98768, 2.06813 | 5173.6 m |
-| 3 | `haworth` | Haworth | Haworth (29.8 × 29.8 km) | −86.36454, −23.20848 | 2842.2 m |
-| 4 | `nobile-rim-2` | Nobile Rim 2 | DM2 (20 × 20 km) | −84.07911, 54.88894 (on the tile's west edge) | 1817.6 m |
+| # | id | name | PGDA LOLA_5mpp tile | Rule | Coordinates | Ground (5 m tile) |
+|---|---|---|---|---|---|---|
+| 0 | `connecting-ridge` | Connecting Ridge | Site01 (16 × 16 km) | highest point of the tile | −89.43891, −137.14357 | 1959.5 m |
+| 1 | `shackleton-rim` | Shackleton Rim | Site04 (16 × 16 km) | highest point on the rim crest, 9.5–12.5 km from the crater centre (89.66 S, 129.2 E) | −89.78040, −156.19695 | 1739.1 m |
+| 2 | `malapert-massif` | Malapert Massif | Site23 (21 × 21 km) | highest point of the tile | −85.98768, 2.06813 | 5173.6 m |
+| 3 | `haworth` | Haworth | Haworth (29.8 × 29.8 km) | highest point of the tile | −86.36454, −23.20848 | 2842.2 m |
+| 4 | `nobile-rim-2` | Nobile Rim 2 | DM2 (20 × 20 km) | highest point of the tile (on the tile's west edge) | −84.07911, 54.88894 | 1817.6 m |
+| 5 | `connecting-ridge-lower` | Connecting Ridge (lower slope) | Site01 | fixed: centre of the tile, 0.7 km from the summit, for the small-move comparison | −89.4632, −137.4896 | 1944.8 m |
 
-**Site rule (team decision 2026-11-14):** each site is the highest point of its PGDA 5 m tile
-(`precompute/pick_sites.py`), recorded in `coord_source` as kind `dem-metadata`, ref
-"highest point of PGDA 5 m tile <label>, chosen by team", with the pixel, height, LDEM height and
-distance to the tile edge in `note`. Two summits lie on a tile edge (Site04, DM2), so the real
-summit may continue outside the tile; the Site04 point is 17.6 km from Shackleton's centre and
-2.9 km from the Connecting Ridge point, i.e. not on the crater rim. These are candidate points,
-not published landing coordinates. Coordinates are never invented; the fake fixture's
-coordinates are placeholders and must not be copied. Tiles: https://pgda.gsfc.nasa.gov/data/LOLA_5mpp/
-(`<label>/<label>_final_adj_5mpp_surf.tif`, README lists the site names).
+**Site rules (team decisions 2026-11-14, `precompute/pick_sites.py`, `precompute/sites.json`):**
+the default is the highest point of the PGDA 5 m tile; Shackleton Rim uses the highest point on
+the rim crest because the tile's highest pixel lies on its west edge, 17.6 km from the crater
+centre and 2.9 km from the Connecting Ridge summit; the sixth site is a fixed comparison point.
+`coord_source` records the rule ("highest point of PGDA 5 m tile <label>, chosen by team",
+"highest point on the rim crest within PGDA tile Site04, chosen by team", or the fixed-point
+text) with the pixel, height, LDEM height and distance to the tile edge in `note`. The DM2
+summit lies on a tile edge, so the real summit may continue outside the tile. These are
+candidate points, not published landing coordinates. Coordinates are never invented; the fake
+fixture's coordinates are placeholders and must not be copied. Tiles:
+https://pgda.gsfc.nasa.gov/data/LOLA_5mpp/ (`<label>/<label>_final_adj_5mpp_surf.tif`, README
+lists the site names).
 
 The old `sites.js` id `shackleton` (named "Shackleton connecting ridge") maps to
 **`connecting-ridge`**. `shackleton-rim` is a different site. `sites.js` is a legacy frontend
