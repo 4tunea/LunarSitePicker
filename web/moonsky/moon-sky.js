@@ -87,6 +87,8 @@ function loadJS(base, key) {
     document.head.appendChild(sc);
   });
 }
+// Lets a host page share the same data files (e.g. the star catalogue for a background star map).
+window.MoonSkyData.load = key => loadJS(SCRIPT_BASE, key);
 const b64bytes = str => { const bin = atob(str), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
 const inflate = u8 => new Response(new Blob([u8]).stream().pipeThrough(new DecompressionStream('deflate'))).arrayBuffer();
 
@@ -212,7 +214,7 @@ const SH = {
   terrainF: `#version 300 es
     precision highp float;
     in vec3 vP; in vec3 vN; in float vW;
-    uniform vec3 uSun, uEarth, uEye; uniform float uSunI, uEarthI, uL, uL1, uExp, uLogF, uSunRad, uHMax, uShadow;
+    uniform vec3 uSun, uEarth, uEye; uniform float uSunI, uEarthI, uL, uL1, uExp, uLogF, uSunRad, uHMax, uShadow, uAmb;
     uniform sampler2D uHM, uHM1; out vec4 o;
     // two heightmaps: fine (~10 m) near the observer, coarse (~390 m) out to the horizon
     float hAt(vec2 xy, out float bias){
@@ -240,7 +242,7 @@ const SH = {
         lit = uSunI*s*(.35*mu0 + .65*mu0/(mu0+mu+.05));      // Lambert + Lommel-Seeliger (regolith)
       }
       float es = uEarthI*max(dot(n,uEarth),0.);
-      vec3 c = .6*(vec3(1.,.98,.95)*lit + vec3(.72,.84,1.)*es + .0012);
+      vec3 c = .6*(vec3(1.,.98,.95)*lit + vec3(.72,.84,1.)*es + uAmb);   // uAmb: faint fill so shadowed ridges stay visible against the black sky
       c = 1. - exp(-c*uExp);
       o = vec4(pow(c, vec3(1./2.2)), 1.);
       ${LOGDEPTH}
@@ -259,18 +261,21 @@ const SH = {
   starF: `#version 300 es
     precision mediump float; in vec3 vC; in float vA; out vec4 o;
     void main(){ vec2 c=gl_PointCoord-.5; float a=exp(-dot(c,c)*16.); if(a<.03) discard; o=vec4(vC*a*vA,1.); }`,
+  // thick screen-space lines; aS = arc length (radians) at each end, for dashes
   lineV: `#version 300 es
-    in vec3 aA; in vec3 aB; in vec2 aC; uniform mat4 uVP; uniform vec2 uRes; uniform float uW;
+    in vec3 aA; in vec3 aB; in vec2 aC; in vec2 aS; uniform mat4 uVP; uniform vec2 uRes; uniform float uW; out float vS;
     void main(){
       vec4 a=uVP*vec4(aA,1.), b=uVP*vec4(aB,1.);
+      vS = aC.x<.5 ? aS.x : aS.y;
       if (a.w<1e-3 || b.w<1e-3) { gl_Position=vec4(0.,0.,-2.,1.); return; }
       vec2 d=(b.xy/b.w-a.xy/a.w)*uRes; float l=length(d); d = l>1e-6 ? d/l : vec2(1.,0.);
       vec4 c = aC.x<.5 ? a : b;
       c.xy += vec2(-d.y,d.x)*aC.y*uW/uRes*c.w;
       gl_Position=c;
     }`,
-  colorF: `#version 300 es
-    precision mediump float; uniform vec4 uCol; out vec4 o; void main(){ o=uCol; }`,
+  lineF: `#version 300 es
+    precision highp float; uniform vec4 uCol; uniform float uDash; in float vS; out vec4 o;
+    void main(){ if (uDash>0. && fract(vS/uDash)>.55) discard; o=uCol; }`,
   dotV: `#version 300 es
     in vec3 aA; uniform mat4 uVP; uniform float uPx; void main(){ gl_Position=uVP*vec4(aA,1.); gl_PointSize=uPx; }`,
   dotF: `#version 300 es
@@ -313,8 +318,9 @@ canvas.drag{cursor:grabbing}
 .l.c{font-weight:600;color:#cfd6e6}.l.c.m{font-weight:400;color:#8b94a8;font-size:10px}
 .l.b{font-weight:600;transform:translate(-50%,-160%)}.l.sun{color:#fdc43a}.l.earth{color:#6fb4ff}
 .l.d{font-size:10px;transform:translate(5px,-50%);opacity:.85}
-.so{position:absolute;transform:translate(-50%,-50%);border:2px solid #fdc43a;border-radius:50%;box-sizing:border-box;
-  box-shadow:0 0 6px rgba(253,196,58,.55),inset 0 0 4px rgba(253,196,58,.35);pointer-events:none}
+.so,.eo{position:absolute;transform:translate(-50%,-50%);border:2px dashed #fdc43a;border-radius:50%;box-sizing:border-box;
+  box-shadow:0 0 6px rgba(253,196,58,.45);pointer-events:none}
+.eo{border-color:#6fb4ff;box-shadow:0 0 6px rgba(111,180,255,.45)}
 .p{position:absolute;background:rgba(14,18,30,.84);border:1px solid rgba(140,155,190,.25);border-radius:8px;backdrop-filter:blur(4px)}
 .top{top:8px;left:8px;right:8px;display:flex;gap:6px;align-items:center;padding:5px 6px;flex-wrap:wrap}
 .top .w{flex:1;min-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-left:2px}
@@ -334,8 +340,10 @@ button{cursor:pointer}button:hover{background:#222b44}button.on{background:#2b4a
 .bar{left:8px;right:8px;bottom:8px;display:flex;gap:8px;align-items:center;padding:5px 8px}
 .bar input[type=range]{flex:1;padding:0;min-width:60px}
 .bar .t{font-variant-numeric:tabular-nums;min-width:118px;text-align:right}
-:host([embedded]) .bar,:host([embedded]) .info,:host([embedded]) .loc{display:none}
-:host([embedded]) .panel{max-height:calc(100% - 64px)}
+:host([embedded]) .bar,:host([embedded]) .info,:host([embedded]) .loc,
+:host([embedded]) .panel,:host([embedded]) [data-a="menu"]{display:none}
+:host([embedded]) .top{left:auto;background:rgba(12,14,19,.78)}
+:host([embedded]) .top .w{display:none}
 .msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;
   font-size:14px;background:rgba(0,0,0,.35);text-align:center;padding:20px}
 .msg[hidden]{display:none}.err{color:#ff8a98}
@@ -394,7 +402,7 @@ class MoonSky extends HTMLElement {
     this.q = s => this.root.querySelector(s);
     this.i = n => this.q(`[data-i="${n}"]`);
     this.view = { yaw: 180, pitch: 10, fov: 70 };
-    this.opt = { paths: true, stars: true, grid: false, labels: true, shadows: true, detail: true, scale: 1, exp: 1 };
+    this.opt = { paths: true, stars: true, grid: false, labels: true, shadows: true, detail: true, skyline: true, earth: true, scale: 1, exp: 1 };   // earth: draw Earth, its path and labels
     this.dirty = true;
     this.eyeH = EYE_H;
     this.hooks = {};
@@ -510,12 +518,32 @@ class MoonSky extends HTMLElement {
     await this.setLocation(lat, lon, !(opts && opts.keepView));
     if (this._lastErr) throw this._lastErr;
   }
-  /** Span drawn as the Sun/Earth paths (e.g. landing to take-off), UTC ms. */
-  async setWindow(t0, t1) {
+  /** Stay window t0..t1 (drawn bright) and, optionally, a longer span p0..p1 for the paths (drawn dim
+   *  outside the stay), all UTC ms. Parts of a path behind the terrain are drawn dashed. */
+  async setWindow(t0, t1, p0, p1) {
     await this._readyP;
-    if (this.win && this.win[0] === t0 && this.win[1] === t1 && this._pathsFor === this._locReq) return;
-    this.win = [t0, t1];
+    p0 = Math.min(t0, p0 == null ? t0 : p0); p1 = Math.max(t1, p1 == null ? t1 : p1);
+    const same = this.win && this.win[0] === t0 && this.win[1] === t1 && this.pathWin && this.pathWin[0] === p0 && this.pathWin[1] === p1;
+    if (same && this._pathsFor === this._locReq) return;
+    this.win = [t0, t1]; this.pathWin = [p0, p1];
     if (this.F) { this._pathsFor = this._locReq; await this._setWindow(t0, (t1 - t0) / 864e5, true); }
+  }
+  /** Display options: paths, stars, grid, labels, shadows, detail (booleans), scale (1-10), exp (0.3-3). */
+  setOption(name, value) {
+    if (!(name in this.opt) || this.opt[name] === value) return;
+    this.opt[name] = value;
+    if (name === 'detail') { if (this.site) this.rebuild(); }
+    else this.dirty = true;
+  }
+  getOptions() { return Object.assign({}, this.opt); }
+  /** Rotation Moon-fixed (ME) <- ICRF at time t as a row-major 3x3, from the built-in DE421 ephemeris.
+   *  Resolves null outside the ephemeris years. */
+  async frameAt(t) {
+    await this._readyP;
+    if (!this.data || !this.data.E) return null;
+    await this.data.ensureRange(t, t);
+    const e = this.data.ephem(t);
+    return e ? quatToM3(e.q) : null;
   }
   /** Keep the Sun centred (true) or give the view back to the user (false). */
   setTracking(on) {
@@ -692,6 +720,8 @@ class MoonSky extends HTMLElement {
       hm1[q] = z; if (z > hmax) hmax = z;
     }
     this.hmax = hmax + 5;
+    // skyline outline (the authoritative skyline when the host gives one), drawn over the terrain
+    { const sk = []; for (let a = 0; a <= 360; a += 0.5) sk.push(dirAltAz(this.horizonAt(a), a)); this._setLines(this.skyLine, sk); }
     const gl = this.gl;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.tPos); gl.bufferData(gl.ARRAY_BUFFER, pos, gl.STATIC_DRAW);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.tNor); gl.bufferData(gl.ARRAY_BUFFER, nor, gl.STATIC_DRAW);
@@ -714,17 +744,15 @@ class MoonSky extends HTMLElement {
   async _setWindow(start, spanDays, keepT) {
     this.span = spanDays;
     const end = start + spanDays * 864e5;
-    try { await this.data.ensureRange(start - 864e5, end + 864e5); }
+    if (!this.embedded || !this.pathWin) this.pathWin = [start, end];
+    const p0 = Math.min(start, this.pathWin[0]), p1 = Math.max(end, this.pathWin[1]);
+    try { await this.data.ensureRange(p0 - 864e5, p1 + 864e5); }
     catch (e) { this._msg(e.message, true); setTimeout(() => this._msg(''), 3500); return; }
     this.win = [start, end];
     if (!this.embedded && (!keepT || this.t < start || this.t > end)) this.t = start;
     this.i('date').value = new Date(start).toISOString().slice(0, 16);
     if (!this.F) return;
-    // paths
-    const hours = spanDays * 24, n = clamp(Math.round(hours * 4), 200, 12000), dt = (end - start) / (n - 1);
-    const sunP = [], earthP = [];
-    for (let k = 0; k < n; k++) { const s = this.sky(start + k * dt); sunP.push(s.sun); earthP.push(s.earth); }
-    this._setLines(this.sunLine, sunP); this._setLines(this.earthLine, earthP);
+    this._buildPaths(start, end, p0, p1);
     // daily marks
     const every = Math.max(1, Math.ceil(spanDays / 31)), marks = [];
     let c = 0;
@@ -794,13 +822,14 @@ class MoonSky extends HTMLElement {
     const gl = this.gl;
     this.P = {
       terrain: this._prog(SH.terrainV, SH.terrainF), star: this._prog(SH.starV, SH.starF),
-      line: this._prog(SH.lineV, SH.colorF), dot: this._prog(SH.dotV, SH.dotF),
+      line: this._prog(SH.lineV, SH.lineF), dot: this._prog(SH.dotV, SH.dotF),
       sun: this._prog(SH.bbV, SH.sunF), earth: this._prog(SH.bbV, SH.earthF),
     };
     this.tPos = gl.createBuffer(); this.tNor = gl.createBuffer(); this.tIdx = gl.createBuffer();
     this.hmTex = gl.createTexture(); this.hm1Tex = gl.createTexture();
     const mkLine = () => ({ buf: gl.createBuffer(), n: 0 });
-    this.sunLine = mkLine(); this.earthLine = mkLine(); this.gridLine = mkLine();
+    this.sunLine = [mkLine(), mkLine(), mkLine(), mkLine()]; this.earthLine = [mkLine(), mkLine(), mkLine(), mkLine()];
+    this.gridLine = mkLine(); this.skyLine = mkLine();
     this.markSun = mkLine(); this.markEarth = mkLine();
     this.quad = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
@@ -810,16 +839,62 @@ class MoonSky extends HTMLElement {
     gl.bindTexture(gl.TEXTURE_2D, this.earthTex);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([30, 70, 140, 255]));
   }
-  _setLines(L, pts, breakAt) {
-    const v = [];
-    for (let k = 0; k + 1 < pts.length; k++) {
-      if (breakAt && breakAt(k)) continue;
-      const A = pts[k], B = pts[k + 1];
-      for (const [e, s] of [[0, -1], [1, -1], [1, 1], [0, -1], [1, 1], [0, 1]]) v.push(...A, ...B, e, s);
+  // segs: flat list of [A, B, sA, sB] (unit directions, arc length in radians at each end)
+  _setSegs(L, segs) {
+    const v = new Float32Array(segs.length * 6 * 10);
+    let o = 0;
+    for (const [A, B, sA, sB] of segs) {
+      for (const [e, s] of [[0, -1], [1, -1], [1, 1], [0, -1], [1, 1], [0, 1]]) {
+        v[o++] = A[0]; v[o++] = A[1]; v[o++] = A[2]; v[o++] = B[0]; v[o++] = B[1]; v[o++] = B[2];
+        v[o++] = e; v[o++] = s; v[o++] = sA; v[o++] = sB;
+      }
     }
     const gl = this.gl;
-    gl.bindBuffer(gl.ARRAY_BUFFER, L.buf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(v), gl.STATIC_DRAW);
-    L.n = v.length / 8;
+    gl.bindBuffer(gl.ARRAY_BUFFER, L.buf); gl.bufferData(gl.ARRAY_BUFFER, v, gl.STATIC_DRAW);
+    L.n = segs.length * 6;
+  }
+  _setLines(L, pts, breakAt) {
+    const segs = []; let s = 0;
+    for (let k = 0; k + 1 < pts.length; k++) {
+      const A = pts[k], B = pts[k + 1], d = Math.acos(clamp(dot3(A, B), -1, 1));
+      if (!(breakAt && breakAt(k))) segs.push([A, B, s, s + d]);
+      s += d;
+    }
+    this._setSegs(L, segs);
+  }
+  /** Sun and Earth paths over p0..p1, split four ways: inside / outside the stay (start..end) and
+   *  above / behind the skyline. Each piece is cut exactly where the body crosses the skyline. */
+  _buildPaths(start, end, p0, p1) {
+    const hours = (p1 - p0) / 36e5, n = clamp(Math.round(hours * 4), 240, 16000), dt = (p1 - p0) / (n - 1);
+    const ts = [];
+    for (let k = 0; k < n; k++) ts.push(p0 + k * dt);
+    for (const t of [start, end]) if (t > p0 && t < p1) ts.push(t);
+    ts.sort((a, b) => a - b);
+    const samples = ts.map(t => this.sky(t));
+    for (const b of ['sun', 'earth']) {
+      const cat = [[], [], [], []];                 // stay+visible, stay+hidden, other+visible, other+hidden
+      let s = 0, prev = null;
+      for (let k = 0; k < ts.length; k++) {
+        const sk = samples[k];
+        if (!sk) { prev = null; continue; }
+        const d = sk[b], [al, az] = altAz(d), cur = { d, c: al - this.horizonAt(az), t: ts[k] };
+        if (prev) {
+          const inStay = (prev.t + cur.t) / 2 >= start && (prev.t + cur.t) / 2 <= end;
+          const seg = (A, B, cA) => {
+            const len = Math.acos(clamp(dot3(A, B), -1, 1));
+            cat[(inStay ? 0 : 2) + (cA ? 0 : 1)].push([A, B, s, s + len]); s += len;
+          };
+          if ((prev.c > 0) !== (cur.c > 0)) {          // crosses the skyline: split at the crossing
+            const f = prev.c / (prev.c - cur.c);
+            const m = norm3([prev.d[0] + (cur.d[0] - prev.d[0]) * f, prev.d[1] + (cur.d[1] - prev.d[1]) * f, prev.d[2] + (cur.d[2] - prev.d[2]) * f]);
+            seg(prev.d, m, prev.c > 0); seg(m, cur.d, cur.c > 0);
+          } else seg(prev.d, cur.d, cur.c > 0);
+        }
+        prev = cur;
+      }
+      const L = b === 'sun' ? this.sunLine : this.earthLine;
+      cat.forEach((c, i) => this._setSegs(L[i], c));
+    }
   }
   _buildGrid() {
     const pts = [], brk = new Set();
@@ -871,15 +946,17 @@ class MoonSky extends HTMLElement {
     const gl = this.gl, loc = prog.a(name); if (loc < 0) return;
     gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, size, gl.FLOAT, false, stride, off);
   }
-  _drawLine(L, M, col, w) {
+  // dashPx > 0 draws dashes about that many CSS pixels long (kept constant on screen while zooming)
+  _drawLine(L, M, col, w, dashPx) {
     if (!L.n) return;
     const gl = this.gl, P = this.P.line; gl.useProgram(P.p);
     gl.bindBuffer(gl.ARRAY_BUFFER, L.buf);
-    this._attr(P, 'aA', 3, 32, 0); this._attr(P, 'aB', 3, 32, 12); this._attr(P, 'aC', 2, 32, 24);
+    this._attr(P, 'aA', 3, 40, 0); this._attr(P, 'aB', 3, 40, 12); this._attr(P, 'aC', 2, 40, 24); this._attr(P, 'aS', 2, 40, 32);
     gl.uniformMatrix4fv(P.u.uVP, false, M.VPs); gl.uniform2f(P.u.uRes, M.W / 2, M.H / 2);
     gl.uniform1f(P.u.uW, w * this.dpr / 2); gl.uniform4fv(P.u.uCol, col);
+    gl.uniform1f(P.u.uDash, dashPx ? 2 * dashPx * this.view.fov * D2R / this.cv.clientHeight : 0);
     gl.drawArrays(gl.TRIANGLES, 0, L.n);
-    this._off(P, ['aA', 'aB', 'aC']);
+    this._off(P, ['aA', 'aB', 'aC', 'aS']);
   }
   _off(P, names) { for (const n of names) { const l = P.a(n); if (l >= 0) this.gl.disableVertexAttribArray(l); } }
 
@@ -918,18 +995,6 @@ class MoonSky extends HTMLElement {
     }
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     if (o.grid) this._drawLine(this.gridLine, M, [0.6, 0.7, 0.9, 0.28], 1);
-    if (o.paths) {
-      this._drawLine(this.sunLine, M, [1, 0.76, 0.15, 0.9], 2);
-      this._drawLine(this.earthLine, M, [0.35, 0.65, 1, 0.9], 2);
-      const P = this.P.dot; gl.useProgram(P.p);
-      for (const [L, col] of [[this.markSun, [1, 0.8, 0.3, 1]], [this.markEarth, [0.5, 0.75, 1, 1]]]) {
-        if (!L.n) continue;
-        gl.bindBuffer(gl.ARRAY_BUFFER, L.buf); this._attr(P, 'aA', 3, 12, 0);
-        gl.uniformMatrix4fv(P.u.uVP, false, M.VPs); gl.uniform1f(P.u.uPx, 5 * dpr); gl.uniform4fv(P.u.uCol, col);
-        gl.drawArrays(gl.POINTS, 0, L.n);
-      }
-      this._off(P, ['aA']);
-    }
     // Sun
     const tanH = Math.tan(this.view.fov * D2R / 2);
     {
@@ -942,7 +1007,7 @@ class MoonSky extends HTMLElement {
       gl.drawArrays(gl.TRIANGLES, 0, 6); this._off(P, ['aC']);
     }
     // Earth (lit by the Sun -> real phase; oriented by Earth rotation angle)
-    {
+    if (o.earth) {
       const P = this.P.earth; gl.useProgram(P.p); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
       const ar = Math.max(earthAR * o.scale, 3 * dpr * radPerPx), ry = 1.1 * Math.tan(ar) / tanH;
       const jd = this.t / 864e5 + 2440587.5, era = 2 * Math.PI * (0.779057273264 + 1.00273781191135448 * (jd - 2451545));
@@ -973,8 +1038,31 @@ class MoonSky extends HTMLElement {
       gl.uniform1f(P.u.uL, RMAX); gl.uniform1f(P.u.uL1, HM1_L); gl.uniform1f(P.u.uExp, 1.4 * o.exp * (1 + 24 * night));
       gl.uniform1f(P.u.uLogF, 2 / Math.log2(FAR + 1)); gl.uniform1f(P.u.uSunRad, sunAR);
       gl.uniform1f(P.u.uHMax, this.hmax); gl.uniform1f(P.u.uShadow, o.shadows ? 1 : 0);
+      gl.uniform1f(P.u.uAmb, 0.012 / (1 + 24 * night));
       gl.drawElements(gl.TRIANGLES, this.tCount, gl.UNSIGNED_INT, 0);
       this._off(P, ['aPos', 'aNor']);
+    }
+    // Sun and Earth paths on top of the terrain: solid where the body is above the skyline, dashed where
+    // terrain hides it; bright during the stay, dim before and after it.
+    gl.disable(gl.DEPTH_TEST); gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    if (o.skyline) this._drawLine(this.skyLine, M, [0.78, 0.81, 0.88, 0.55], 1.2);
+    if (o.paths) {
+      const SUN = [1, 0.76, 0.15], EARTH = [0.42, 0.7, 1];
+      for (const [L, c] of (o.earth ? [[this.earthLine, EARTH]] : []).concat([[this.sunLine, SUN]])) {
+        this._drawLine(L[3], M, [...c, 0.32], 1.5, 5);
+        this._drawLine(L[2], M, [...c, 0.45], 1.5);
+        this._drawLine(L[1], M, [...c, 0.85], 2, 7);
+        this._drawLine(L[0], M, [...c, 1], 2.5);
+      }
+      const P = this.P.dot; gl.useProgram(P.p);
+      for (const [L, col] of [[this.markSun, [1, 0.82, 0.35, 1]]].concat(o.earth ? [[this.markEarth, [0.55, 0.78, 1, 1]]] : [])) {
+        if (!L.n) continue;
+        gl.bindBuffer(gl.ARRAY_BUFFER, L.buf); this._attr(P, 'aA', 3, 12, 0);
+        gl.uniformMatrix4fv(P.u.uVP, false, M.VPs); gl.uniform1f(P.u.uPx, 5 * dpr); gl.uniform4fv(P.u.uCol, col);
+        gl.drawArrays(gl.POINTS, 0, L.n);
+      }
+      this._off(P, ['aA']);
+      gl.disable(gl.BLEND);
     }
     this._labels(M);
     this._info();
@@ -1014,24 +1102,31 @@ class MoonSky extends HTMLElement {
       this.sunEl = Object.assign(document.createElement('div'), { className: 'l b sun' });
       this.earthEl = Object.assign(document.createElement('div'), { className: 'l b earth' });
       this.sunRing = Object.assign(document.createElement('div'), { className: 'so' });
-      box.append(this.sunRing, this.sunEl, this.earthEl);
+      this.earthRing = Object.assign(document.createElement('div'), { className: 'eo' });
+      box.append(this.sunRing, this.earthRing, this.sunEl, this.earthEl);
     }
     for (const c of this.cEls) this._place(c.el, M, dirAltAz(this.horizonAt(c.az) + 1.3, c.az), show);
     const st = this.state;
-    const hidden = st.sunVis < 0.999;
+    const hidden = st.sunVis < 0.999, eHidden = st.earthVis < 0.999;
     this.sunEl.textContent = st.occ > 0 ? (st.occ >= 1 ? 'Sun — eclipsed by Earth' : 'Sun — partial eclipse')
-      : st.sunVis <= 0.001 ? 'Sun (below the skyline)' : hidden ? `Sun (${Math.round(st.sunVis * 100)}% of disc above the skyline)` : 'Sun';
-    // yellow outline where the Sun is when the Moon's horizon / terrain hides it
-    const ringPx = Math.max(2 * st.sunAR * this.opt.scale / (this.view.fov * D2R / this.cv.clientHeight), 14);
+      : st.sunVis <= 0.001 ? 'Sun (behind the skyline)' : hidden ? `Sun (${Math.round(st.sunVis * 100)}% of disc above the skyline)` : 'Sun';
+    // dashed outlines where the Sun / Earth are when terrain or the Moon's horizon hides them
+    const pxPerRad = this.cv.clientHeight / (this.view.fov * D2R);
+    const ringPx = Math.max(2 * st.sunAR * this.opt.scale * pxPerRad, 14);
     this.sunRing.style.width = this.sunRing.style.height = ringPx + 'px';
     this._place(this.sunRing, M, st.s.sun, hidden);
-    this.earthEl.textContent = `Earth ${Math.round(st.s.phase * 100)}%`;
+    const eRingPx = Math.max(2 * st.earthAR * this.opt.scale * pxPerRad, 14);
+    this.earthRing.style.width = this.earthRing.style.height = eRingPx + 'px';
+    this._place(this.earthRing, M, st.s.earth, eHidden && this.opt.earth);
+    this.earthEl.textContent = `Earth ${Math.round(st.s.phase * 100)}% lit` +
+      // same rule as the host app: Earth counts as in view when its centre is above the skyline
+      (st.eAlt - this.horizonAt(st.eAz) < 0 ? ' (behind the skyline)' : eHidden ? ' (edge behind the skyline)' : '');
     this._place(this.sunEl, M, st.s.sun, show);
-    this._place(this.earthEl, M, st.s.earth, show && st.earthVis > 0);
+    this._place(this.earthEl, M, st.s.earth, show && this.opt.earth);
     const showD = show && this.opt.paths;
     for (const d of this.dayEls || []) {
       const [al, az] = altAz(d.d);
-      this._place(d.el, M, d.d, showD && al > this.horizonAt(az));
+      this._place(d.el, M, d.d, showD && (d.b !== 'earth' || this.opt.earth) && al > this.horizonAt(az));
     }
   }
   _info() {
