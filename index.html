@@ -79,7 +79,7 @@
         </div>
         <div class="sp-viz">
           <figure class="pano" id="panoBox" hidden>
-            <figcaption><span>Horizon from the site, unrolled 360°</span><span class="legend"><i class="k s"></i>Sun <i class="k e"></i>Earth <i class="k dash"></i>behind terrain</span></figcaption>
+            <figcaption><span id="panoCap">Horizon from the site, unrolled 360°</span><span class="legend"><i class="k s"></i>Sun <i class="k e"></i>Earth <i class="k dash"></i><span id="panoDash">behind terrain</span></span></figcaption>
             <svg id="pano" viewBox="0 0 1000 290" role="img" aria-label="Skyline with the Sun and Earth paths"></svg>
           </figure>
           <div class="card timeline">
@@ -119,6 +119,7 @@
       <canvas id="globe" aria-label="3D Moon with landing sites"></canvas>
       <div id="pins"></div>
       <moon-sky id="surface" embedded aria-label="View from the surface at the selected site, with the Sun and Earth"></moon-sky>
+      <p class="surfnote" id="surfNote" aria-live="polite"></p>
       <div class="zoomctl" id="zoomCtl">
         <button type="button" class="btn icon" id="zoomIn" aria-label="Zoom in">+</button>
         <button type="button" class="btn icon" id="zoomOut" aria-label="Zoom out">−</button>
@@ -218,6 +219,7 @@
   <span id="stCursor"></span>
   <span id="stData"></span>
   <span id="stSurface"></span>
+  <span id="stTerrain"></span>
   <span class="keys">Double-click the Moon to add a pin · Esc closes a site · Space plays · Drag the 3D horizon to look around</span>
 </footer>
 <script src="web/data/navigator-data.js" onerror="void 0"></script>

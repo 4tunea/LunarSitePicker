@@ -11,12 +11,13 @@ Reads raw data from `data/` (gitignored, filled by `scripts/download_data.py`).
 | `pds_label.py` | PDS3 label reader (DEM geometry comes from the label, never from the file size) |
 | `sites.json` | The five analysed sites: id, name, PGDA tile, coordinates and their `coord_source` |
 | `pick_sites.py` | Site rules from `sites.json` ("pick": summit, rim-crest, fixed); `--write` updates coordinates and `coord_source` |
-| `build.py` | The one writer of `web/data/navigator-data.{json,js}`; prints per-site statistics and file sizes |
+| `build.py` | The one writer of `web/data/navigator-data.{json,js}`; prints per-site statistics and file sizes. A site outside every DEM layer becomes a sphere-only record (contract §9) instead of failing |
 | `analyze_windows.py` | Landing windows under the app rule and the simple rule, 21-day slip check |
 | `slip_table.py` | "Launch slipped" table: flip dates, reason, alternative sites, next window, demo candidates |
 | `earth_events.py` | Exact Earthrise/Earthset and sunrise/sunset times around given dates (hourly flags refined to the minute) |
 | `sun_behind_terrain.py` | Periods when the Sun is above the horizontal but hidden by terrain, with the blocking terrain's distance |
 | `tests/test_horizon.py` | Flat sphere, ring and east walls, two-layer near-field step, Shackleton floor, Malapert bearing |
+| `tests/test_build_sphere_only.py` | `build_site` on a point outside the DEM writes the sphere-only record; a point on the DEM still takes the terrain path |
 
 ```text
 .venv/Scripts/python.exe scripts/download_data.py          # kernels, LDEM_75S_120M, five 5 m tiles

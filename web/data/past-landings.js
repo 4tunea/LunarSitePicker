@@ -2,7 +2,9 @@
    Coordinates: planetocentric latitude, east-positive longitude, rounded to 0.01 deg (about 300 m).
    Source: published landing coordinates (LROC images of the landers, NASA NSSDCA). They are
    approximate at that rounding level; none of them are in the analysed terrain data, so the app
-   judges them on a smooth-sphere horizon (or the coarse polar grid south of 80 S). */
+   shows them as reference points, ranked below the analysed sites: coarse 720 m polar grid south of 75 S,
+   smooth sphere elsewhere, always labelled. A landing whose id is also in the data file is treated as an
+   analysed site instead. */
 var PAST_LANDINGS = [
   { id: 'apollo-11', name: 'Apollo 11', note: 'NASA, crewed, 1969 · Mare Tranquillitatis', lat: 0.67, lon: 23.47 },
   { id: 'apollo-12', name: 'Apollo 12', note: 'NASA, crewed, 1969 · Oceanus Procellarum', lat: -3.01, lon: -23.42 },

@@ -66,11 +66,12 @@ Derived angles were checked against the file for the other analysed sites: they 
 - `index.html`, `app.js`, `style.css`, `globe.js`: the interface.
 - `web/moonsky/moon-sky.js`: the 3D horizon (`<moon-sky>`), and its data scripts in `web/moonsky/`.
 - `web/data/navigator-data.js`: the precomputed Sun, Earth and skyline data.
-- `web/data/past-landings.js`: 27 past soft landings (rounded published coordinates).
+- `web/data/past-landings.js`: 27 past soft landings (rounded published coordinates), shown as reference points below the analysed sites.
 - `web/data/terrain-lowres.js`: coarse south-pole terrain; `web/tools/build_terrain.py` writes it.
 - `web/data/moon-relief.js`: LOLA slope maps for the globe relief; `web/tools/build_relief.py` writes it.
 - `moon-texture.js`: the NASA Moon colour map; `web/tools/build_texture.py` writes it.
 - `web/terrain.js`: terrain-horizon code. Checks: `node web/tools/test_terrain.js`.
+- `web/tools/test_app.js`: end-to-end checks of the page in headless Edge/Chrome (`node web/tools/test_app.js`).
 
 `build_terrain.py` and `build_relief.py` need `data/LDEM_75S_120M.IMG` (116 MB, from
 `scripts/download_data.py` or PDS). No longer loaded by the page: `sites.js`, `horizons.js`,

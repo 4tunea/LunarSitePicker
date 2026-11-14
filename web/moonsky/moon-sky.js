@@ -4,7 +4,7 @@
  * folder (built by web/tools/build_moonsky_data.py) and are loaded on demand with <script> tags.
  *
  *   <moon-sky embedded></moon-sky>
- *   el.configure({ sky, skyline, height })     optional hooks (see below)
+ *   el.configure({ sky, skyline, height, terrain })   optional hooks (see below)
  *   el.setSite(lat, lon, label)                 -> Promise, resolves when the terrain is ready
  *   el.setWindow(t0ms, t1ms); el.setTime(ms)    path span and current time (UTC ms)
  *   el.setTracking(true|false)                  keep the Sun centred (drag is locked meanwhile)
@@ -17,6 +17,9 @@
  *                  is bent so the drawn skyline matches it, nothing nearer pokes above it, and
  *                  visibility (labels, the hidden-Sun ring) uses it.
  *   height(lat, lon) -> ground height (m, 1737.4 km sphere) or null (then LOLA LDEM_16 is used).
+ *   terrain()   -> 'dem' | 'coarse' | 'sphere' | null (optional). With 'sphere' the host's skyline is a smooth-sphere
+ *                  horizon: it still drives labels, events and visibility, but the landscape is left as it is
+ *                  (illustrative) instead of being bent flat to it.
  *
  * Event 'moonsky-progress' (detail: { label, frac 0..1 }) is fired while a site is being built, so a host
  * can show a loading screen.
@@ -403,6 +406,7 @@ class MoonSky extends HTMLElement {
     this.i = n => this.q(`[data-i="${n}"]`);
     this.view = { yaw: 180, pitch: 10, fov: 70 };
     this.opt = { paths: true, stars: true, grid: false, labels: true, shadows: true, detail: true, skyline: true, earth: true, scale: 1, exp: 1 };   // earth: draw Earth, its path and labels
+    this.sphere = false;                                      // host skyline is a smooth sphere (set per site from hooks.terrain())
     this.dirty = true;
     this.eyeH = EYE_H;
     this.hooks = {};
@@ -650,9 +654,11 @@ class MoonSky extends HTMLElement {
       for (let b = 0; b < 720 && auth; b++) { const h = this.hooks.skyline(b * 0.5); if (h == null || !isFinite(h)) auth = null; else auth[b] = h; }
     }
     this.auth = auth;
+    // A smooth-sphere skyline (no terrain data) is kept for labels, events and visibility, but the landscape is not bent to it.
+    this.sphere = !!(auth && this.hooks.terrain && this.hooks.terrain() === 'sphere');
     const authAt = az => { const x = (((az % 360) + 360) % 360) / 0.5, i = Math.floor(x) % 720, f = x - Math.floor(x); return auth[i] * (1 - f) + auth[(i + 1) % 720] * f; };
     const shift = new Float64Array(SEGS);                   // tan(delta elevation) per segment
-    if (auth) {
+    if (auth && !this.sphere) {
       const far = new Float64Array(SEGS).fill(-89);
       for (let i = 1; i < NR; i++) {
         if (radii[i] <= W0) continue;
@@ -665,7 +671,7 @@ class MoonSky extends HTMLElement {
     }
     const shiftAt = az => { const x = ((az % 360) + 360) % 360, i = Math.floor(x) % SEGS, f = x - Math.floor(x); return shift[i] * (1 - f) + shift[(i + 1) % SEGS] * f; };
     const conform = (z, hz, r, az) => {
-      if (!auth) return z;
+      if (!auth || this.sphere) return z;
       z += hz * shiftAt(az) * blend(r);
       if (r > 8) z = Math.min(z, eye + hz * Math.tan(authAt(az) * D2R));
       return z;
@@ -1108,8 +1114,9 @@ class MoonSky extends HTMLElement {
     for (const c of this.cEls) this._place(c.el, M, dirAltAz(this.horizonAt(c.az) + 1.3, c.az), show);
     const st = this.state;
     const hidden = st.sunVis < 0.999, eHidden = st.earthVis < 0.999;
+    const sky = this.sphere ? 'the horizon' : 'the skyline', beh = this.sphere ? 'below' : 'behind';   // sphere points: nothing to be behind
     this.sunEl.textContent = st.occ > 0 ? (st.occ >= 1 ? 'Sun — eclipsed by Earth' : 'Sun — partial eclipse')
-      : st.sunVis <= 0.001 ? 'Sun (behind the skyline)' : hidden ? `Sun (${Math.round(st.sunVis * 100)}% of disc above the skyline)` : 'Sun';
+      : st.sunVis <= 0.001 ? `Sun (${beh} ${sky})` : hidden ? `Sun (${Math.round(st.sunVis * 100)}% of disc above ${sky})` : 'Sun';
     // dashed outlines where the Sun / Earth are when terrain or the Moon's horizon hides them
     const pxPerRad = this.cv.clientHeight / (this.view.fov * D2R);
     const ringPx = Math.max(2 * st.sunAR * this.opt.scale * pxPerRad, 14);
@@ -1120,7 +1127,7 @@ class MoonSky extends HTMLElement {
     this._place(this.earthRing, M, st.s.earth, eHidden && this.opt.earth);
     this.earthEl.textContent = `Earth ${Math.round(st.s.phase * 100)}% lit` +
       // same rule as the host app: Earth counts as in view when its centre is above the skyline
-      (st.eAlt - this.horizonAt(st.eAz) < 0 ? ' (behind the skyline)' : eHidden ? ' (edge behind the skyline)' : '');
+      (st.eAlt - this.horizonAt(st.eAz) < 0 ? ` (${beh} ${sky})` : eHidden ? ` (edge ${beh} ${sky})` : '');
     this._place(this.sunEl, M, st.s.sun, show);
     this._place(this.earthEl, M, st.s.earth, show && this.opt.earth);
     const showD = show && this.opt.paths;
@@ -1133,7 +1140,7 @@ class MoonSky extends HTMLElement {
     const st = this.state, s = st.s, t = this.t;
     const next = b => (this.events || []).find(e => e.b === b && e.t > t);
     const ns = next('sun'), ne = next('earth');
-    const vis = v => (v >= 1 ? 'visible' : v <= 0 ? 'below terrain horizon' : 'partly behind terrain');
+    const vis = v => (v >= 1 ? 'visible' : v <= 0 ? (this.sphere ? 'below the horizon' : 'below terrain horizon') : (this.sphere ? 'partly below the horizon' : 'partly behind terrain'));
     const html = `<div><b>${fmtUTC(t)} UTC</b></div>
       <div class="k">Ground ${Math.round(this.h0).toLocaleString()} m (LOLA) · ${st.sunVis > 0 && st.occ < 1 ? 'lunar day' : 'lunar night'}</div>
       <div class="r"><span class="dot" style="background:#fdc43a"></span><b>Sun</b> ${st.sAlt.toFixed(2)}° · ${st.sAz.toFixed(1)}° ${compass(st.sAz)}<br>
