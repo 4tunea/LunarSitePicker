@@ -1,53 +1,53 @@
-# Lunar landing site navigator (demo)
+# Lunar landing site navigator
 
-A 3D Moon with the landing sites that suit a chosen date shown as ranked pins.
-Click a pin to zoom in and see the view from the surface, with the Sun and Earth
-moving over the next lunar day.
+A planning tool: set a landing date and a length of stay, and the 3D Moon shows
+the landing sites that suit that mission as ranked pins. Click a pin to inspect
+the site: the view from the surface with the real skyline, and the Sun and Earth
+moving through the stay.
 
 ## Run it
 
-- Simplest: double-click `index.html`. Everything works offline except the
-  "Check against JPL Horizons" button.
-- With the Horizons check: run `python server.py` in this folder and open
-  http://localhost:8000 (needs Python 3 and an internet connection).
+1. Double-click `index.html`. It works offline.
+2. For real NASA imagery and terrain, run this once in the folder (Python 3, internet):
 
-## How to use it
+       python build_data.py            (116 MB download, 120 m terrain)
+       python build_data.py --small    (29 MB download, 240 m terrain)
 
-- The date bar on top sets the landing date. Pins and the ranked list update.
-- The left list runs from the top pick to the worst. "Hide" retracts it.
-- Drag to turn the Moon, scroll to zoom, double-click the surface to test your own spot.
-- "Show technical data" adds whole-Moon data on the front page (phase, Sun and
-  Earth overhead points, sunrise line, the full score table) and site data when
-  zoomed in (elevations, azimuths, elevation chart, score).
+   It writes `moon-texture.js` (the Moon's surface photo map) and `horizons.js`
+   (the terrain skyline for each south-pole site), then reload the page.
+   Downloads are kept in `data/` and reused.
+
+Without step 2 the tool tries NASA's live Moon Trek image tiles for the surface
+and uses a smooth-sphere horizon. The status bar at the bottom always says which
+surface map and which skyline are in use.
+
+## Using it
+
+- Top bar: landing date, stay in days, take-off date. Stay and take-off are linked.
+- Left list: recommended sites, best first. "Site list" hides or shows it.
+- Moon: drag to turn, scroll to zoom, click a pin to inspect, double-click the
+  surface to test your own spot.
+- Inside a site: click the Moon (or press Esc) to go back. Space plays the stay,
+  arrow keys step through it. On the whole Moon, arrow keys move the landing date.
+- "Technical data" adds whole-Moon data and the score table on the main view,
+  and elevations, skyline heights and a chart inside a site.
 
 ## How sites are ranked
 
-A site is recommended when the Sun is up and Earth is in view on the landing
-date and both stay that way for at least 5 days. Score out of 100:
-60% time with both after landing (capped at 14 days), 20% share of the lunar
-day in sunlight, 20% share with Earth in view. The rule lives in `evaluate()`
-in `app.js`.
+Score = share of the stay with both sunlight and Earth in view (0 to 100).
+A site is recommended when both are there at landing and the score is at least 75.
+Ties go to the site that keeps both longest after take-off (schedule margin).
+The rule is `evaluate()` in `app.js`.
 
-Only Sun and Earth geometry goes into the score. Terrain, slopes, hazards and
-temperature are not included.
+## Data and limits
 
-## Files
-
-- `index.html`, `style.css`, `app.js`: the page.
-- `globe.js`: the 3D Moon (WebGL2, no libraries). The surface is generated, not
-  a photo. To use a real map, save an equirectangular Moon image (0 degrees
-  longitude in the centre) as `moon.jpg` in this folder and run through `server.py`.
-- `ephem.js`: Sun and Earth positions seen from the Moon, computed in the browser.
-- `sites.js`: the site list. Add a site by adding one line.
-- `server.py`: optional local server with a small proxy to the JPL Horizons API.
-
-## Limits to know about
-
-- `ephem.js` is an approximate model (truncated Meeus lunar theory). It matched
-  Meeus's worked examples to about 0.03 degrees and the Apollo 11 landing Sun
-  elevation (10.7 vs 10.8 degrees published).
-- The horizon is a smooth sphere. Near the poles terrain decides most of the
-  real lighting, so polar results are optimistic or pessimistic by site.
+- Sun and Earth positions: `ephem.js`, a truncated Meeus lunar theory. Checked
+  against Meeus's worked examples (about 0.03 degrees) and the Apollo 11 landing.
+- Skyline: NASA LOLA elevation model LDEM_75S (imbrium.mit.edu), seen from 2 m
+  above the ground, out to 250 km, every 2 degrees of azimuth. It resolves
+  mountains and crater rims, not boulders. Only sites south of 79 S get terrain;
+  other sites and custom spots use a smooth sphere.
+- Surface map: NASA SVS CGI Moon Kit colour map (2k), or Moon Trek LRO tiles.
+- Slopes, landing hazards and temperature are not part of the score.
 - Site coordinates are approximate.
-- The Horizons proxy has not been tested against the live API.
-# LunarSitePicker
+- `server.py` is optional and only needed for the "Check against JPL Horizons" button.

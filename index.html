@@ -7,25 +7,38 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header class="top">
+<header class="bar">
   <h1>Lunar landing site navigator</h1>
-  <div class="datebar">
-    <button class="btn step" id="prevDay" type="button" aria-label="Previous day">&#8249;</button>
-    <label>Landing date (UTC) <input type="date" id="date"></label>
-    <button class="btn step" id="nextDay" type="button" aria-label="Next day">&#8250;</button>
+  <div class="mission" role="group" aria-label="Mission dates">
+    <div class="field">
+      <label for="date">Landing (UTC)</label>
+      <div class="row">
+        <button class="btn step" id="prevDay" type="button" aria-label="Land one day earlier">&#8249;</button>
+        <input type="date" id="date">
+        <button class="btn step" id="nextDay" type="button" aria-label="Land one day later">&#8250;</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="days">Stay on the surface</label>
+      <div class="row"><input type="number" id="days" min="1" max="60" step="1" inputmode="numeric"><span class="unit">days</span></div>
+    </div>
+    <div class="field">
+      <label for="takeoff">Take-off (UTC)</label>
+      <div class="row"><input type="date" id="takeoff"></div>
+    </div>
   </div>
-  <label class="switch"><input type="checkbox" id="techToggle"><span class="track" aria-hidden="true"></span>Show technical data</label>
+  <div class="tools">
+    <button class="btn" id="sideToggle" type="button" aria-pressed="true">Site list</button>
+    <label class="switch"><input type="checkbox" id="techToggle"><span class="track" aria-hidden="true"></span>Technical data</label>
+  </div>
 </header>
 
 <div class="app" id="app">
   <aside class="side" id="side" aria-label="Recommended landing sites">
-    <div class="side-head">
-      <h2>Recommended landing sites</h2>
-      <button class="btn small" id="hideSide" type="button">Hide</button>
-    </div>
+    <h2>Recommended landing sites</h2>
     <p class="hint" id="sideSub"></p>
     <ol id="rank" class="rank"></ol>
-    <h3 id="notHead">Not recommended on this date</h3>
+    <h3 id="notHead">Not recommended for this mission</h3>
     <ul id="notRank" class="rank off"></ul>
   </aside>
 
@@ -33,29 +46,32 @@
     <div class="globe" id="globeWrap">
       <canvas id="globe" aria-label="3D Moon with recommended landing sites"></canvas>
       <div id="pins"></div>
-      <button class="btn showside" id="showSide" type="button" hidden>Recommended landing sites</button>
       <div class="viewbtns">
         <button class="btn small" id="viewAll" type="button">Whole Moon</button>
         <button class="btn small" id="viewPole" type="button">South pole</button>
         <button class="btn small" id="zoomIn" type="button" aria-label="Zoom in">+</button>
         <button class="btn small" id="zoomOut" type="button" aria-label="Zoom out">&minus;</button>
       </div>
-      <p class="globehint" id="globeHint">Drag to turn the Moon. Scroll to zoom. Click a pin to land there, or double-click the surface to test your own spot.</p>
+      <p class="backhint" id="backHint" hidden>Click the Moon to return to the full view</p>
       <p class="nogl" id="noGl" hidden>This browser cannot draw the 3D Moon. Pick a site from the list instead.</p>
       <section class="moontech" id="moonTech" hidden>
-        <h2>The Moon on this date</h2>
+        <h2>The Moon at landing</h2>
         <table id="moonTable"></table>
         <h3>How sites are ranked</h3>
-        <p class="note">A site is recommended when the Sun is up and Earth is in view on the landing date, and both stay that way for at least 5 days. The score is 60% time with both after landing (up to 14 days), 20% share of the lunar day in sunlight, 20% share with Earth in view. Terrain, slopes and hazards are not included.</p>
+        <p class="note" id="ruleNote"></p>
         <table id="rankTable" class="ranktable"></table>
       </section>
     </div>
 
     <section class="sitepanel" id="sitePanel" hidden>
       <div class="sp-left">
-        <button class="btn small" id="back" type="button">Back to the whole Moon</button>
-        <h2 id="siteName"></h2>
-        <p id="siteMeta" class="hint"></p>
+        <div class="sp-head">
+          <div>
+            <h2 id="siteName"></h2>
+            <p id="siteMeta" class="hint"></p>
+          </div>
+          <button class="btn small close" id="back" type="button" aria-label="Close this site and return to the whole Moon">&times;</button>
+        </div>
         <p id="badge" class="badge"></p>
         <div class="verdict" id="verdict" aria-live="polite"></div>
         <div class="stats" id="stats"></div>
@@ -63,7 +79,7 @@
       <div class="sp-right">
         <figure class="sky">
           <svg id="sky" viewBox="0 0 800 250" role="img" aria-label="View from the surface with the Sun and Earth"></svg>
-          <figcaption>The view from the surface, all the way around the lander. Faint lines show where the Sun and Earth travel over the next lunar day.</figcaption>
+          <figcaption id="skyCap"></figcaption>
         </figure>
         <div class="timeline">
           <div class="tl-head">
@@ -72,8 +88,8 @@
             <span class="legend"><i class="k s"></i>Sun up <i class="k e"></i>Earth in view</span>
           </div>
           <svg id="strips" viewBox="0 0 800 50" preserveAspectRatio="none" aria-hidden="true"></svg>
-          <input type="range" id="scrub" min="0" max="708" step="1" value="0" aria-label="Hours after landing date">
-          <div class="tl-scale"><span>Landing</span><span>+1 week</span><span>+2 weeks</span><span>+3 weeks</span><span>+1 lunar day</span></div>
+          <input type="range" id="scrub" min="0" max="240" step="1" value="0" aria-label="Hours after landing">
+          <div class="tl-scale" id="tlScale"></div>
         </div>
       </div>
       <div class="sitetech" id="siteTech" hidden>
@@ -81,11 +97,11 @@
         <div class="techgrid">
           <table id="techTable"></table>
           <figure>
-            <svg id="elChart" viewBox="0 0 520 220" role="img" aria-label="Elevation of Sun and Earth over the lunar day"></svg>
-            <figcaption>Elevation above the horizon over the lunar day, in degrees.</figcaption>
+            <svg id="elChart" viewBox="0 0 520 220" role="img" aria-label="Elevation of Sun and Earth over the mission"></svg>
+            <figcaption>Elevation above the horizontal over the mission, in degrees. The dashed line is the terrain height in the Sun's direction.</figcaption>
           </figure>
         </div>
-        <p class="note">Positions come from an approximate model that runs in this page (truncated Meeus lunar theory with optical librations, about 0.1° accuracy). The horizon is a smooth sphere, so terrain is not included. Near the poles the Sun stays within about 1.5° of the horizon, so real ridges and crater rims change these results a lot. The Sun counts as up when any part of its disc is above the horizon, Earth when its centre is.</p>
+        <p class="note">Sun and Earth positions come from a model that runs in this tool (truncated Meeus lunar theory with optical librations, about 0.1° accuracy). Where terrain data is loaded, the skyline comes from NASA's LOLA elevation model, seen from 2 m above the ground; it shows mountains and crater rims, not boulders. The Sun counts as up when any part of its disc clears the skyline, Earth when its centre does.</p>
         <div class="hz">
           <button class="btn small" id="hzBtn" type="button">Check against JPL Horizons</button>
           <span id="hzMsg" class="hint"></span>
@@ -95,8 +111,18 @@
     </section>
   </main>
 </div>
+
+<footer class="status">
+  <span id="stCursor"></span>
+  <span id="stSurface"></span>
+  <span id="stHorizon"></span>
+  <span>Sun and Earth: built-in model, about 0.1°</span>
+  <span class="keys">Esc closes a site. Arrow keys step. Space plays.</span>
+</footer>
 <script src="ephem.js"></script>
 <script src="sites.js"></script>
+<script src="horizons.js"></script>
+<script src="moon-texture.js"></script>
 <script src="globe.js"></script>
 <script src="app.js"></script>
 </body>

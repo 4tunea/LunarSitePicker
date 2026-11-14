@@ -1,10 +1,9 @@
-/* Dependency-free WebGL2 Moon: a ray-traced sphere with procedural maria and craters,
-   lit from the real Sun direction. If a file named moon.jpg (equirectangular map,
-   0 deg longitude in the centre) sits next to the page and the page is served over
-   http, it is used as the surface instead. */
+/* Dependency-free WebGL2 Moon: a ray-traced sphere lit from the real Sun direction.
+   The surface comes from setTexture() (an equirectangular image or canvas, 0 deg
+   longitude in the centre). Until one is set, a generated surface is drawn. */
 var Globe = (function () {
   var RAD = Math.PI / 180, TANF = Math.tan(17.5 * RAD);
-  var canvas, gl, prog, U = {}, raf = 0, anim = null, onDraw = function () {}, onPick = function () {};
+  var canvas, gl, prog, U = {}, raf = 0, anim = null, tex = null, cb = {};
   var cam = { lon: 15, lat: -40, dist: 4.2 };
   var opt = { sun: [1, 0, 0], earth: [1, 0, 0], grid: 0 }, hasTex = 0;
   var MARIA = [[33,-16,17],[28,17,10],[8,31,12],[17,59,7.5],[-8,51,9],[-15,35,5.5],[18,-57,22],
@@ -38,7 +37,7 @@ var Globe = (function () {
     ' float lon=atan(n.y,n.x),lat=asin(clamp(n.z,-1.,1.));',
     ' float diff=max(dot(n,uSun),0.);vec3 sunT=normalize(uSun-n*dot(uSun,n)+1e-5);',
     ' float alb,rel=0.;',
-    ' if(uHasTex>.5){vec3 t=texture(uTex,vec2(lon/6.2831853+.5,.5-lat/3.14159265)).rgb;alb=dot(t,vec3(.333))*1.35;}',
+    ' if(uHasTex>.5){vec3 t=texture(uTex,vec2(lon/6.2831853+.5,.5-lat/3.14159265)).rgb;alb=dot(t,vec3(.333))*1.6+.03;}',
     ' else{alb=.6+.3*(fbm(n*3.)-.5)+.14*(fbm(n*13.)-.5);float mare=0.,w=.07*(fbm(n*6.)-.5);',
     '  for(int i=0;i<14;i++)mare=max(mare,smoothstep(uMaria[i].w-.02,uMaria[i].w+.03,dot(n,uMaria[i].xyz)+w));',
     '  alb*=mix(1.,.52,mare);vec2 c1=craters(n,7.,sunT),c2=craters(n,19.,sunT);',
@@ -61,8 +60,8 @@ var Globe = (function () {
   }
   function dot(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
 
-  function init(el, drawCb, pickCb) {
-    canvas = el; onDraw = drawCb; onPick = pickCb;
+  function init(el, callbacks) {
+    canvas = el; cb = callbacks;
     gl = canvas.getContext('webgl2', { antialias: false });
     if (gl) {
       var mk = function (type, src) { var s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
@@ -77,35 +76,25 @@ var Globe = (function () {
         var m = [];
         MARIA.forEach(function (a) { var d = dir(a[0], a[1]); m.push(d[0], d[1], d[2], Math.cos(a[2] * RAD)); });
         gl.uniform4fv(U.uMaria, new Float32Array(m));
-        var img = new Image();
-        img.onload = function () {
-          try {
-            var t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
-            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, img);
-            gl.generateMipmap(gl.TEXTURE_2D);
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-            hasTex = 1; request();
-          } catch (e) { hasTex = 0; }
-        };
-        img.onerror = function () {};
-        img.src = 'moon.jpg';
       } catch (e) { gl = null; }
     }
-    var drag = null;
-    canvas.addEventListener('pointerdown', function (ev) { drag = { x: ev.clientX, y: ev.clientY }; anim = null; canvas.setPointerCapture(ev.pointerId); });
+    var drag = null, moved = 0;
+    function local(ev) { var box = canvas.getBoundingClientRect(); return pick(ev.clientX - box.left, ev.clientY - box.top); }
+    canvas.addEventListener('pointerdown', function (ev) { drag = { x: ev.clientX, y: ev.clientY }; moved = 0; anim = null; canvas.setPointerCapture(ev.pointerId); });
     canvas.addEventListener('pointermove', function (ev) {
-      if (!drag) return;
+      if (!drag) { if (cb.hover) cb.hover(local(ev)); return; }
+      var dx = ev.clientX - drag.x, dy = ev.clientY - drag.y;
+      moved += Math.abs(dx) + Math.abs(dy);
+      if (moved < 4) return;
       var k = 150 / canvas.clientHeight * (cam.dist - 1) / 3.2;
-      cam.lon -= (ev.clientX - drag.x) * k; cam.lat = Math.max(-88, Math.min(88, cam.lat + (ev.clientY - drag.y) * k));
+      cam.lon -= dx * k; cam.lat = Math.max(-88, Math.min(88, cam.lat + dy * k));
       drag = { x: ev.clientX, y: ev.clientY }; request();
     });
-    canvas.addEventListener('pointerup', function () { drag = null; });
+    canvas.addEventListener('pointerup', function (ev) { if (drag && moved < 4 && cb.click) cb.click(local(ev)); drag = null; });
     canvas.addEventListener('pointercancel', function () { drag = null; });
+    canvas.addEventListener('pointerleave', function () { if (cb.hover) cb.hover(null); });
     canvas.addEventListener('wheel', function (ev) { ev.preventDefault(); anim = null; zoom(Math.exp(ev.deltaY * 0.0012)); }, { passive: false });
-    canvas.addEventListener('dblclick', function (ev) {
-      var box = canvas.getBoundingClientRect(), pt = pick(ev.clientX - box.left, ev.clientY - box.top);
-      if (pt) onPick(pt);
-    });
+    canvas.addEventListener('dblclick', function (ev) { var pt = local(ev); if (pt && cb.pick) cb.pick(pt); });
     resize();
     return !!gl;
   }
@@ -135,7 +124,7 @@ var Globe = (function () {
       gl.uniform1f(U.uTanF, TANF); gl.uniform1f(U.uGrid, opt.grid ? 1 : 0); gl.uniform1f(U.uHasTex, hasTex);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
-    onDraw();
+    if (cb.draw) cb.draw();
   }
   // Screen position (CSS pixels) of a surface point, and whether it faces the camera.
   function project(lat, lon) {
@@ -161,7 +150,20 @@ var Globe = (function () {
              dlon: dlon, t0: performance.now(), ms: still ? 1 : 900 };
     request();
   }
+  // Use a real surface map. Returns false if the browser refuses the image (cross-origin).
+  function setTexture(source) {
+    if (!gl) return false;
+    try {
+      var t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, source);
+      gl.generateMipmap(gl.TEXTURE_2D);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+      if (tex) gl.deleteTexture(tex);
+      tex = t; hasTex = 1; request(); return true;
+    } catch (e) { if (tex) gl.bindTexture(gl.TEXTURE_2D, tex); return false; }
+  }
   function set(o) { for (var k in o) opt[k] = o[k]; request(); }
   function view() { return { lon: cam.lon, lat: cam.lat, dist: cam.dist }; }
-  return { init: init, resize: resize, request: request, project: project, flyTo: flyTo, set: set, zoom: zoom, view: view, dir: dir };
+  return { init: init, resize: resize, request: request, project: project, flyTo: flyTo, set: set, zoom: zoom, view: view, dir: dir, setTexture: setTexture };
 })();
