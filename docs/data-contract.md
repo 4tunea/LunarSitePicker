@@ -323,6 +323,14 @@ fake fixture is `web/data/navigator-data.fake.js` (`"fake": true`, written by
 | 3 | `haworth` | Haworth | Haworth (29.8 × 29.8 km) | highest point of the tile | −86.36454, −23.20848 | 2842.2 m |
 | 4 | `nobile-rim-2` | Nobile Rim 2 | DM2 (20 × 20 km) | highest point of the tile (on the tile's west edge) | −84.07911, 54.88894 | 1817.6 m |
 | 5 | `connecting-ridge-lower` | Connecting Ridge (lower slope) | Site01 | fixed: centre of the tile, 0.7 km from the summit, for the small-move comparison | −89.4632, −137.4896 | 1944.8 m |
+| 6 | `im-2` | IM-2 Athena | none (LDEM 120 m only) | fixed: published landing coordinates (LROC, NSSDCA), rounded to 0.01° | −84.79, 29.20 | 5320.2 m (120 m) |
+| 7 | `im-1` | IM-1 Odysseus | none (LDEM 120 m only) | fixed: published landing coordinates (LROC, NSSDCA), rounded to 0.01° | −80.13, 1.44 | 2591.8 m (120 m) |
+
+Sites 6 and 7 (added 2026-11-14, branch horizon-coverage) are the two past landings south of 75°S. They
+have no PGDA 5 m tile, so their horizon comes from `LDEM_75S_120M.IMG` alone (`dem` lists only the
+far field; the app labels them "terrain horizon (LOLA 120 m)"); IM-2 is complete, IM-1 is complete = false (rays leave the DEM to the north)
+and is labelled "incomplete". `app.js` drops a past landing from `PAST_LANDINGS` when its id is in this
+file, so they appear once, as analysed sites. `sites[0]` is still Connecting Ridge.
 
 **Site rules (team decisions 2026-11-14, `precompute/pick_sites.py`, `precompute/sites.json`):**
 the default is the highest point of the PGDA 5 m tile; Shackleton Rim uses the highest point on

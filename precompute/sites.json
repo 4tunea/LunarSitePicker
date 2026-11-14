@@ -110,5 +110,31 @@
       "file": "Site01_final_adj_5mpp_surf.tif",
       "extent_km": 16.0
     }
+  },
+  {
+    "id": "im-2",
+    "name": "IM-2 Athena",
+    "pgda_site": null,
+    "pick": "fixed",
+    "lat_deg": -84.79,
+    "lon_deg": 29.2,
+    "coord_source": {
+      "kind": "paper",
+      "ref": "published landing coordinates (LROC image of the lander, NASA NSSDCA), rounded to 0.01 deg",
+      "note": "Intuitive Machines IM-2 Athena, 2025, Mons Mouton area. Past landing added as an analysed site on 2026-11-14 (same coordinates as web/data/past-landings.js, about 300 m rounding). No PGDA 5 m tile: horizon from LDEM_75S_120M only, complete within 250 km."
+    }
+  },
+  {
+    "id": "im-1",
+    "name": "IM-1 Odysseus",
+    "pgda_site": null,
+    "pick": "fixed",
+    "lat_deg": -80.13,
+    "lon_deg": 1.44,
+    "coord_source": {
+      "kind": "paper",
+      "ref": "published landing coordinates (LROC image of the lander, NASA NSSDCA), rounded to 0.01 deg",
+      "note": "Intuitive Machines IM-1 Odysseus, 2024, Malapert A. Past landing added as an analysed site on 2026-11-14 (same coordinates as web/data/past-landings.js, about 300 m rounding). No PGDA 5 m tile: horizon from LDEM_75S_120M only; rays towards the north leave the DEM before 250 km (complete = false, lower bound there)."
+    }
   }
 ]

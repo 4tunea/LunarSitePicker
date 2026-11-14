@@ -98,13 +98,16 @@ const PAGE = String.raw`
     document.getElementById('wizClose').click();
     S = document.getElementById('surface');
     out.agree = [];
-    async function agree(site, name) {
+    async function agree(site, name, exp) {
       var wrap = document.getElementById('globeWrap');
       D.setView('3d'); D.select(site);
-      var res = { name: name, id: site.id, lat: site.lat, lon: site.lon, terrain: D.terrainOf(site), label: D.terrainLabel(site), complete: site.complete };
+      var res = { name: name, id: site.id, exp: exp, lat: site.lat, lon: site.lon, terrain: D.terrainOf(site), label: D.terrainLabel(site), complete: site.complete };
       try {
         await until(function () { return wrap.classList.contains('surface-on') || wrap.classList.contains('surface-error'); }, 150000);
         await sleep(800);
+        var before = S.state;                                  // the state below must come from a frame drawn for this site:
+        try { S.dirty = false; S._render(); } catch (e) { res.renderError = String(e && e.message || e); }   // draw one now (rAF is unreliable under virtual time)
+        res.rendered = S.state !== before; res.tView = S.t; res.tApp = T0 + (D.state.plan * SPD + D.state.cur) * STEP;
         res.error = wrap.classList.contains('surface-error') ? document.getElementById('slErr').textContent : null;
         var maxDiff = 0, azMax = 0;
         for (var az = 0; az < 360; az += 0.5) { var d = Math.abs(S.horizonAt(az) - D.skyline(site, az)); if (d > maxDiff) { maxDiff = d; azMax = az; } }
@@ -119,11 +122,12 @@ const PAGE = String.raw`
       } catch (e) { res.error = String(e && e.message || e); }
       out.agree.push(res);
     }
-    await agree(ap, 'sphere point, Apollo 11');
-    await agree(by('im-2'), 'coarse point, IM-2 Athena');
-    D.addPin(-77.5, 30);
-    var pin = D.sites().filter(function (s) { return s.group === 'pin'; })[0];
-    await agree(pin, 'pin at 77.5 S, 30 E');
+    await agree(ap, 'sphere point, Apollo 11', 'sphere');
+    D.addPin(-85.5, 120);                                      // coarse point: the 720 m grid, 150 km march stays on the grid
+    var lastPin = function () { return D.sites().filter(function (s) { return s.group === 'pin'; }).slice(-1)[0]; };
+    await agree(lastPin(), 'coarse point, pin at 85.5 S, 120 E', 'coarse');
+    D.addPin(-77.5, 30);                                       // between 75 S and 80 S: rays reach the grid edge
+    await agree(lastPin(), 'pin at 77.5 S, 30 E', 'incomplete');
     D.setView('2d'); D.select(ap);
     out.pano = { cap: document.getElementById('panoCap').textContent, dash: document.getElementById('panoDash').textContent, why: (document.getElementById('why') || {}).textContent || '' };
     D.addPin(0, 88);                                           // a sphere point with Earth near the horizon (libration branch of "why")
@@ -194,12 +198,12 @@ if (res) {
   check('wizard list rows carry a terrain label', (wz.labels || []).length > 0 && wz.labels.every(l => /terrain horizon|coarse terrain|smooth sphere/.test(l)), (wz.labels || []).slice(0, 3).join(' | '));
   check('wizard review counts analysed sites on their own', new RegExp('of ' + nA + ' analysed sites are available').test(wz.review || '') && /Reference points: \d+ of \d+/.test(wz.review || ''), (wz.review || '').slice(0, 160));
   // badge vs 3D
-  const want = { 'apollo-11': 'sphere', 'im-2': 'coarse' };
   for (const g of res.agree || []) {
-    const exp = want[g.id] || 'coarse', tag = g.name + ' (' + g.terrain + ')';
+    const exp = g.exp === 'sphere' ? 'sphere' : 'coarse', tag = g.name + ' (' + g.terrain + ')';
     check(tag + ': 3D view built', !g.error, g.error);
     check(tag + ': terrain kind = ' + exp, g.terrain === exp, g.label);
     check(tag + ': 3D horizonAt == app skyline at every 0.5 deg', g.maxDiffDeg != null && g.maxDiffDeg < 0.01, 'max diff ' + g.maxDiffDeg + ' deg at az ' + g.azMax);
+    check(tag + ': 3D view drew a fresh frame for this site at the app\'s time', g.rendered === true && g.tView === g.tApp, 'rendered ' + g.rendered + ', view ' + new Date(g.tView || 0).toISOString() + ' vs app ' + new Date(g.tApp || 0).toISOString());
     check(tag + ': Sun disc fraction agrees (3D vs verdict)', g.viewFrac != null && Math.abs(g.viewFrac - g.appFrac) < 0.05 && (g.viewFrac >= 0.5) === g.appSunUp, '3D ' + (g.viewFrac == null ? 'null' : g.viewFrac.toFixed(3)) + ' vs app ' + (g.appFrac == null ? 'null' : g.appFrac.toFixed(3)));
     check(tag + ': badge, header and 3D note carry the label', (g.badge || '').indexOf(g.label) >= 0 && (g.meta || '').indexOf(g.label) >= 0 && (g.note || '').length > 0, g.note);
     if (exp === 'sphere') {
@@ -207,8 +211,8 @@ if (res) {
       check(tag + ': 3D labels never say "behind the skyline"', g.viewSphere === true && !/behind/.test(g.sunLabel + g.earthLabel), g.sunLabel + ' / ' + g.earthLabel);
       check(tag + ': tiles say smooth-sphere horizon', (g.tiles || []).every(t => /smooth-sphere horizon/.test(t)), (g.tiles || []).join(' | '));
     }
-    if (g.id !== 'apollo-11' && g.id !== 'im-2') check(tag + ': labelled incomplete (grid edge within 150 km)', g.complete === false && /incomplete/.test(g.label), g.label);
-    if (g.id === 'im-2') check(tag + ': complete coarse horizon', g.complete === true && !/incomplete/.test(g.label), g.label);
+    if (g.exp === 'incomplete') check(tag + ': labelled incomplete (grid edge within 150 km)', g.complete === false && /incomplete/.test(g.label), g.label);
+    if (g.exp === 'coarse') check(tag + ': complete coarse horizon', g.complete === true && !/incomplete/.test(g.label), g.label);
   }
   check('three badge-vs-3D cases ran', (res.agree || []).length === 3, String((res.agree || []).length));
   // 2D

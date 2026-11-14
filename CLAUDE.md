@@ -61,8 +61,11 @@ Keep the scope small: 5 south-pole sites, done properly.
    Horizons (observer on body 301, Sun and Earth, 3+ timestamps), report differences
    as static CSV + markdown in validation/.
 
-## Sites (analysed set: exactly these 5, plus one comparison point)
+## Sites (analysed set: these 5, one comparison point, and the two polar past landings)
 Site01 Connecting Ridge, Site04 Shackleton Rim, Malapert Massif, Haworth, Nobile Rim 2.
+Appended 2026-11-14 (horizon-coverage): IM-2 Athena and IM-1 Odysseus at their published landing
+coordinates (no 5 m tile, LDEM 120 m horizon only; IM-1 incomplete towards the north), so the two
+past landings inside the DEM get a real skyline; the app drops them from the reference points.
 Decision 2026-11-14: coordinates = highest point of the PGDA 5 m tile (Shackleton Rim: highest
 point on the rim crest); a sixth site "Connecting Ridge (lower slope)" at the Site01 tile centre
 shows what a 0.7 km move does. Rules and sources: precompute/sites.json, docs/data-contract.md §10.
