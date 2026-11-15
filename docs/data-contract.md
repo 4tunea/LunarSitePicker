@@ -75,6 +75,12 @@ from `app.js`.
   "fake": false,                      // [app] true only in the fake fixture; shows the FAKE banner
   "generated_utc": "2026-11-14T15:00:00Z",   // [app] shown in the Technical data panel
   "generator": "precompute/build.py, git <short-sha>",   // [app] shown; also keys the saved UI state
+  "si_assisted": {                    // [info] optional; NASA Space Apps SI disclosure, see AI_USE.md
+    "pipeline_code": true,            // the code that wrote this file was AI-assisted
+    "values": false,                  // the values are NASA-derived, not model output
+    "tool": "Anthropic Claude",
+    "note": "..."
+  },
   "constants": {
     "moon_radius_km": 1737.4          // [app]
   },
@@ -348,3 +354,12 @@ lists the site names).
 The old `sites.js` id `shackleton` (named "Shackleton connecting ridge") maps to
 **`connecting-ridge`**. `shackleton-rim` is a different site. `sites.js` is a legacy frontend
 file that `index.html` no longer loads.
+
+
+## Appendix: `si_assisted` (added 2026-11-15)
+
+Optional, informational, added for the NASA Space Apps disclosure rules on Super Intelligence
+(SI) tool use. `precompute/build.py` writes it; the frontend ignores it. It records that the
+pipeline **code** was written with AI assistance while the **values** are computed from NASA
+data (JPL DE421 via Skyfield, LRO LOLA terrain). Readers who want the whole picture should see
+`AI_USE.md` at the repository root. Consumers must not key behaviour off this field.

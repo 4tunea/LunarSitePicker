@@ -1,3 +1,4 @@
+/* AI (SI) tool use: written with AI assistance (Anthropic Claude). Displayed values come from NASA data, not from a model. See AI_USE.md. */
 /*
  * <moon-sky> - first-person view from a point on the lunar surface (WebGL2, no dependencies).
  * Classic script, so the page also works when opened from file://. Data files are scripts in this

@@ -1,3 +1,4 @@
+/* AI (SI) tool use: file written with AI assistance (Anthropic Claude); the coordinates are published mission values, not model output. See AI_USE.md. */
 /* Past soft landings on the Moon, used as candidate landing sites.
    Coordinates: planetocentric latitude, east-positive longitude, rounded to 0.01 deg (about 300 m).
    Source: published landing coordinates (LROC images of the landers, NASA NSSDCA). They are

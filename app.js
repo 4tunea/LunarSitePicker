@@ -1,3 +1,4 @@
+/* AI (SI) tool use: written with AI assistance (Anthropic Claude). Displayed values come from NASA data, not from a model. See AI_USE.md. */
 /* Lunar Site Navigator: interface.
    All Sun, Earth and skyline numbers come from NAV_DATA (docs/data-contract.md).
    Visibility is derived here, following contract section 7, so the rules stay user-settable. */

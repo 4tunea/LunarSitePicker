@@ -1,3 +1,4 @@
+/* AI (SI) tool use: written with AI assistance (Anthropic Claude). Displayed values come from NASA data, not from a model. See AI_USE.md. */
 /* Lunar Site Navigator: a quiet, neutral tool UI. Graphite surfaces in clear steps, one accent
    (violet) for selection and focus, and the four data colours reserved for meaning:
    Sun amber, Earth blue, available green, not available orange. */
@@ -371,6 +372,7 @@ td:last-child { color: var(--ink); }
 .status { flex: none; display: flex; gap: 22px; align-items: center; padding: 4px 16px; background: var(--panel); border-top: 1px solid var(--line);
   font-size: 0.72rem; color: var(--muted); white-space: nowrap; overflow: hidden; font-variant-numeric: tabular-nums; }
 #stCursor { min-width: 190px; color: var(--ink2); }
+#stAi { color: var(--muted); }                       /* SI-use marker, visible on every screen (AI_USE.md) */
 .status .keys { margin-left: auto; }
 
 @media (max-width: 1100px) {

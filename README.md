@@ -5,6 +5,14 @@ landing date and the stay, drag the launch-slip slider, and watch which sites st
 Open a site that stops working and the tool offers two ways out: switch to a site that
 works on the new date, or land later at the same site. Compare any set of sites side by side.
 
+## AI (SI) tool use
+
+The code in this repository was written with AI assistance (Anthropic Claude). The numbers the
+tool shows were not: Sun and Earth positions come from JPL DE421 through Skyfield, horizons from
+NASA LOLA terrain, and the results are checked against JPL Horizons. No AI-generated images,
+video or audio are used, and the project contains no NASA branding. Full disclosure:
+**[AI_USE.md](AI_USE.md)**.
+
 ## Run it
 
 Double-click `index.html`. No server and no build step. It works offline, except for the

@@ -1,3 +1,4 @@
+/* AI (SI) tool use: written with AI assistance (Anthropic Claude). Displayed values come from NASA data, not from a model. See AI_USE.md. */
 /* Terrain horizon from a south-polar elevation grid. Used in the browser for picked
    spots (coarse grid) and by web/tools/make_fake_data.js (full 120 m grid).
    Grid: square, south polar stereographic, 0 deg longitude up, 90 deg E right,

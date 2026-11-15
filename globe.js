@@ -1,3 +1,4 @@
+/* AI (SI) tool use: written with AI assistance (Anthropic Claude). Displayed values come from NASA data, not from a model. See AI_USE.md. */
 /* Dependency-free WebGL2 Moon: a ray-traced sphere lit from the real Sun direction, in front of a
    real star map.
    - Surface colour: setTexture() (equirectangular image or canvas, 0 deg longitude in the centre).
